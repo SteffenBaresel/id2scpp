@@ -1496,6 +1496,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			es[1] = "SYSTEM_ICMP_REQUEST";
 			last_state = temp_host->last_state;
 			state = schangedata->state;
+			ec[2] = escape_buffer(temp_host->plugin_output);
 			es[7] = es[1].substr(es[1].find_first_of("_")+1);
 			es[8] = s.Trimm(s.ToString(temp_host->address));
 		    } else {
@@ -1505,6 +1506,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			es[0] = escape_buffer(temp_service->host_name);
 			es[1] = escape_buffer(temp_service->display_name);
 			last_state = temp_service->last_state;
+			ec[2] = escape_buffer(temp_service->plugin_output);
 			state = schangedata->state;
 			es[7] = es[1].substr(es[1].find_first_of("_")+1);
 			es[8] = s.Trimm(s.ToString(temp_host->address));
@@ -1535,14 +1537,15 @@ int id2sc_handle_data(int event_type, void *data) {
 			    if (ResultSet_next(instanceGSID)) {
 		    		srvid = ResultSet_getIntByName(instanceGSID, "srvid");
 				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SQL: Get Service ID :: " << srvid << endl; }
-				PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,?,?,?)");
+				PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
 				PreparedStatement_setInt(msc, 1, hstid);
 				PreparedStatement_setInt(msc, 2, srvid);
 				PreparedStatement_setInt(msc, 3, state);
 				PreparedStatement_setInt(msc, 4, last_state);
-				PreparedStatement_setInt(msc, 5, 1);
-				PreparedStatement_setInt(msc, 6, 0);
-				PreparedStatement_setInt(msc, 7, timestamp);
+				PreparedStatement_setString(msc, 5, ec[2]);
+				PreparedStatement_setInt(msc, 6, 1);
+				PreparedStatement_setInt(msc, 7, 0);
+				PreparedStatement_setInt(msc, 8, timestamp);
 			        PreparedStatement_execute(msc);
 			    }
 			} else {
