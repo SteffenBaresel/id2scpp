@@ -205,3 +205,11 @@ string &Configuration::ToString(char *c)
     ss >> s;
     return s;
 }
+
+int Configuration::WriteToCmdfile(const string& file,char *cmd) {
+    ofstream cmdfile;
+    cmdfile.open(file.c_str(), fstream::out);
+    cmdfile << cmd;
+    cmdfile.close();
+    return 0;
+}

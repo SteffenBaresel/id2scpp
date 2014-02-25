@@ -33,6 +33,7 @@ class Configuration {
         string Rtrim(string& s);
         string Trimm(string& s);
         string &ToString(char *c);
+        int WriteToCmdfile(const string& file,char *cmd);
 };
 
 #endif

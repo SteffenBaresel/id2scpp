@@ -32,6 +32,7 @@ ofstream debugfile;
 int process_module_args(char *);
 Configuration config;
 string dbgfile;
+string commandfile;
 string debug;
 char temp_buffer[8192];
 string idname;
