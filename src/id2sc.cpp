@@ -309,7 +309,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			    PreparedStatement_setInt(msc, 8, timestamp);
 			    PreparedStatement_execute(msc);
 			    /* Remove Acknowledgement */
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Remove Acknowledgement" << endl; }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Remove Acknowledgement" << endl; }
 			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
 			    PreparedStatement_setInt(msc2, 1, srvid);
 			    PreparedStatement_execute(msc2);
@@ -332,7 +332,7 @@ int id2sc_handle_data(int event_type, void *data) {
 				    mtyp=3;
 				    break;
 			    }
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Fill Monitoring Mailing" << endl; }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
 			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
 			    PreparedStatement_setInt(pfm, 1, hstid);
 			    PreparedStatement_setInt(pfm, 2, srvid);
@@ -383,12 +383,12 @@ int id2sc_handle_data(int event_type, void *data) {
 			    PreparedStatement_setInt(msc, 8, timestamp);
 			    PreparedStatement_execute(msc);
 			    /* Remove Acknowledgement */
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Remove Acknowledgement" << endl; }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Remove Acknowledgement" << endl; }
 			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
 			    PreparedStatement_setInt(msc2, 1, srvid);
 			    PreparedStatement_execute(msc2);
 			    /* Prepare for Mailing */
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Fill Monitoring Mailing" << endl; }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
 			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
 			    PreparedStatement_setInt(pfm, 1, hstid);
 			    PreparedStatement_setInt(pfm, 2, srvid);
@@ -1465,7 +1465,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			    PreparedStatement_setInt(msc, 8, timestamp);
 			    PreparedStatement_execute(msc);
 			    /* Remove Acknowledgement */
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Remove Acknowledgement" << endl; }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS STATE_CHANGE: Remove Acknowledgement" << endl; }
 			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
 			    PreparedStatement_setInt(msc2, 1, srvid);
 			    PreparedStatement_execute(msc2);
@@ -1488,7 +1488,7 @@ int id2sc_handle_data(int event_type, void *data) {
 				    mtyp=3;
 				    break;
 			    }
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Fill Monitoring Mailing" << endl; }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
 			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
 			    PreparedStatement_setInt(pfm, 1, hstid);
 			    PreparedStatement_setInt(pfm, 2, srvid);
@@ -1539,12 +1539,12 @@ int id2sc_handle_data(int event_type, void *data) {
 			    PreparedStatement_setInt(msc, 8, timestamp);
 			    PreparedStatement_execute(msc);
 			    /* Remove Acknowledgement */
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Remove Acknowledgement" << endl; }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS STATE_CHANGE: Remove Acknowledgement" << endl; }
 			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
 			    PreparedStatement_setInt(msc2, 1, srvid);
 			    PreparedStatement_execute(msc2);
 			    /* Prepare for Mailing */
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Fill Monitoring Mailing" << endl; }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
 			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
 			    PreparedStatement_setInt(pfm, 1, hstid);
 			    PreparedStatement_setInt(pfm, 2, srvid);
