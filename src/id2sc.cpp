@@ -1524,7 +1524,7 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_setInt(stu, 1, tid);
 				    PreparedStatement_execute(stu);
 				    /* Prepare for Mailing */
-				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'5',?,?,'0',?)");
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'5',?,?,'0','0','0',?)");
 				    PreparedStatement_setInt(pfm, 1, hstid);
 				    PreparedStatement_setInt(pfm, 2, srvid);
 				    PreparedStatement_setString(pfm, 3, usr.c_str());
@@ -1550,7 +1550,7 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_setInt(stu, 1, tid);
 				    PreparedStatement_execute(stu);
 				    /* Prepare for Mailing */
-				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'5',?,?,'0',?)");
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'5',?,?,'0','0','0',?)");
 				    PreparedStatement_setInt(pfm, 1, hstid);
 				    PreparedStatement_setInt(pfm, 2, srvid);
 				    PreparedStatement_setString(pfm, 3, usr.c_str());
@@ -1597,12 +1597,14 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_setInt(stu, 1, tid);
 				    PreparedStatement_execute(stu);
 				    /* Prepare for Mailing */
-				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'2',?,?,'0',?)");
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'2',?,?,'0',?,?,?)");
 				    PreparedStatement_setInt(pfm, 1, hstid);
 				    PreparedStatement_setInt(pfm, 2, srvid);
 				    PreparedStatement_setString(pfm, 3, usr.c_str());
 				    PreparedStatement_setString(pfm, 4, comment.c_str());
-				    PreparedStatement_setInt(pfm, 5, timestamp);
+				    PreparedStatement_setInt(pfm, 5, tsstart);
+				    PreparedStatement_setInt(pfm, 6, tsend);
+				    PreparedStatement_setInt(pfm, 7, timestamp);
 				    PreparedStatement_execute(pfm);
 				} CATCH(SQLException) {
 				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
@@ -1644,12 +1646,14 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_setInt(stu, 1, tid);
 				    PreparedStatement_execute(stu);
 				    /* Prepare for Mailing */
-				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'2',?,?,'0',?)");
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'2',?,?,'0',?,?,?)");
 				    PreparedStatement_setInt(pfm, 1, hstid);
 				    PreparedStatement_setInt(pfm, 2, srvid);
 				    PreparedStatement_setString(pfm, 3, usr.c_str());
 				    PreparedStatement_setString(pfm, 4, comment.c_str());
-				    PreparedStatement_setInt(pfm, 5, timestamp);
+				    PreparedStatement_setInt(pfm, 5, tsstart);
+				    PreparedStatement_setInt(pfm, 6, tsend);
+				    PreparedStatement_setInt(pfm, 7, timestamp);
 				    PreparedStatement_execute(pfm);
 				} CATCH(SQLException) {
 				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
@@ -1690,7 +1694,7 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_setInt(stu, 1, tid);
 				    PreparedStatement_execute(stu);
 				    /* Prepare for Mailing */
-				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'1',?,?,'0',?)");
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'1',?,?,'0','0','0',?)");
 				    PreparedStatement_setInt(pfm, 1, hstid);
 				    PreparedStatement_setInt(pfm, 2, srvid);
 				    PreparedStatement_setString(pfm, 3, usr.c_str());
@@ -1736,7 +1740,7 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_setInt(stu, 1, tid);
 				    PreparedStatement_execute(stu);
 				    /* Prepare for Mailing */
-				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'1',?,?,'0',?)");
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'1',?,?,'0','0','0',?)");
 				    PreparedStatement_setInt(pfm, 1, hstid);
 				    PreparedStatement_setInt(pfm, 2, srvid);
 				    PreparedStatement_setString(pfm, 3, usr.c_str());
@@ -1854,7 +1858,7 @@ int id2sc_handle_data(int event_type, void *data) {
 					break;
 				}
 				if (last_state == 0) { mtyp = 3; }
-				PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,?,'system',?,'0',?)");
+				PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,'system',?,'0','0','0',?)");
 				PreparedStatement_setInt(pfm, 1, hstid);
 				PreparedStatement_setInt(pfm, 2, srvid);
 				PreparedStatement_setInt(pfm, 3, mtyp);
@@ -1906,10 +1910,12 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_setInt(msc2, 1, srvid);
 			PreparedStatement_execute(msc2);
 			/* Prepare for Mailing */
-			PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'2',encode('system','base64'),encode('Die Downtime des Services ist beendet.','base64'),'0',?)");
+			PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'6',encode('system','base64'),encode('Die Downtime des Services ist beendet.','base64'),'0',?,?,?)");
 			PreparedStatement_setInt(pfm, 1, hstid);
 			PreparedStatement_setInt(pfm, 2, srvid);
-			PreparedStatement_setInt(pfm, 3, timestamp);
+			PreparedStatement_setInt(pfm, 3, dstart);
+			PreparedStatement_setInt(pfm, 4, dend);
+			PreparedStatement_setInt(pfm, 5, timestamp);
 			PreparedStatement_execute(pfm);
 		    }
 		} CATCH(SQLException) {
