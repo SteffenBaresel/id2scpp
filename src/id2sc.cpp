@@ -92,7 +92,6 @@ extern "C" int nebmodule_init(int flags, char *args, nebmodule *handle) {
     neb_register_callback(NEBCALLBACK_SERVICE_STATUS_DATA, id2sc_module_handle, 0, id2sc_handle_data);
     neb_register_callback(NEBCALLBACK_HOST_STATUS_DATA, id2sc_module_handle, 0, id2sc_handle_data);
     neb_register_callback(NEBCALLBACK_PROGRAM_STATUS_DATA, id2sc_module_handle, 0, id2sc_handle_data);
-    neb_register_callback(NEBCALLBACK_STATE_CHANGE_DATA, id2sc_module_handle, 0, id2sc_handle_data);
     neb_register_callback(NEBCALLBACK_DOWNTIME_DATA, id2sc_module_handle, 0, id2sc_handle_data);
 
     if (debug.compare("on") == 0) {
@@ -122,7 +121,6 @@ extern "C" int nebmodule_deinit(int flags, int reason) {
     neb_deregister_callback(NEBCALLBACK_SERVICE_STATUS_DATA, id2sc_handle_data);
     neb_deregister_callback(NEBCALLBACK_HOST_STATUS_DATA, id2sc_handle_data);
     neb_deregister_callback(NEBCALLBACK_PROGRAM_STATUS_DATA, id2sc_handle_data);
-    neb_deregister_callback(NEBCALLBACK_STATE_CHANGE_DATA, id2sc_handle_data);
     neb_deregister_callback(NEBCALLBACK_DOWNTIME_DATA, id2sc_handle_data);
 
     if (debug.compare("on") == 0) {
@@ -146,7 +144,6 @@ int id2sc_handle_data(int event_type, void *data) {
     nebstruct_service_status_data *ssdata = NULL;
     nebstruct_host_status_data *hsdata = NULL;
     nebstruct_program_status_data *psdata = NULL;
-    nebstruct_statechange_data *schangedata = NULL;
     nebstruct_downtime_data *dtdata = NULL;
     service *temp_service = NULL;
     host *temp_host = NULL;
@@ -299,6 +296,51 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_setString(ihhd, 7, ec[4]);
 			PreparedStatement_setInt(ihhd, 8, timestamp);
 			PreparedStatement_execute(ihhd);
+			/* check for state change */
+			if (temp_service->current_state != temp_service->last_state) {
+			    PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
+			    PreparedStatement_setInt(msc, 1, hstid);
+			    PreparedStatement_setInt(msc, 2, srvid);
+			    PreparedStatement_setInt(msc, 3, temp_service->current_state);
+			    PreparedStatement_setInt(msc, 4, temp_service->last_state);
+			    PreparedStatement_setString(msc, 5, ec[2]);
+			    PreparedStatement_setInt(msc, 6, 1);
+			    PreparedStatement_setInt(msc, 7, 0);
+			    PreparedStatement_setInt(msc, 8, timestamp);
+			    PreparedStatement_execute(msc);
+			    /* Remove Acknowledgement */
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Remove Acknowledgement" << endl; }
+			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
+			    PreparedStatement_setInt(msc2, 1, srvid);
+			    PreparedStatement_execute(msc2);
+			    /* Prepare for Mailing */
+			    int mtyp;
+			    switch (temp_service->last_state) {
+				case 0:
+				    mtyp=3;
+				    break;
+				case 1:
+				    if (temp_service->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
+				    break;
+				case 2:
+				    if (temp_service->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
+				    break;
+				case 3:
+				    if (temp_service->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
+				    break;
+				default:
+				    mtyp=3;
+				    break;
+			    }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Fill Monitoring Mailing" << endl; }
+			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
+			    PreparedStatement_setInt(pfm, 1, hstid);
+			    PreparedStatement_setInt(pfm, 2, srvid);
+			    PreparedStatement_setInt(pfm, 3, mtyp);
+			    PreparedStatement_setString(pfm, 4, ec[2]);
+			    PreparedStatement_setInt(pfm, 5, timestamp);
+			    PreparedStatement_execute(pfm);
+			}
 		    } else {
 			PreparedStatement_T ihpd = Connection_prepareStatement(con, "INSERT INTO monitoring_status(HSTID,SRVID,OUTPUT,LONG_OUTPUT,CURRENT_STATE,LAST_STATE,LAST_CHECK,NEXT_CHECK,LAST_TIME_OK,LAST_TIME_WA,LAST_TIME_CR,LAST_TIME_UN,PERCENT_STATE_CHANGE,PERF_DATA,ACK,ACKID,DTM,DTMID,CREATED) VALUES (?,?,encode(?,'base64'),encode(?,'base64'),?,?,?,?,?,?,?,?,?,encode(?,'base64'),false,'0',false,'0',?)");
 			PreparedStatement_setInt(ihpd, 1, hstid);
@@ -328,6 +370,33 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_setString(ihhd, 7, ec[4]);
 			PreparedStatement_setInt(ihhd, 8, timestamp);
 			PreparedStatement_execute(ihhd);
+			/* check for state change */
+			if (temp_service->current_state > 0) {
+			    PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
+			    PreparedStatement_setInt(msc, 1, hstid);
+			    PreparedStatement_setInt(msc, 2, srvid);
+			    PreparedStatement_setInt(msc, 3, temp_service->current_state);
+			    PreparedStatement_setInt(msc, 4, 0);
+			    PreparedStatement_setString(msc, 5, ec[2]);
+			    PreparedStatement_setInt(msc, 6, 1);
+			    PreparedStatement_setInt(msc, 7, 0);
+			    PreparedStatement_setInt(msc, 8, timestamp);
+			    PreparedStatement_execute(msc);
+			    /* Remove Acknowledgement */
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Remove Acknowledgement" << endl; }
+			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
+			    PreparedStatement_setInt(msc2, 1, srvid);
+			    PreparedStatement_execute(msc2);
+			    /* Prepare for Mailing */
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Fill Monitoring Mailing" << endl; }
+			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
+			    PreparedStatement_setInt(pfm, 1, hstid);
+			    PreparedStatement_setInt(pfm, 2, srvid);
+			    PreparedStatement_setInt(pfm, 3, 4);
+			    PreparedStatement_setString(pfm, 4, ec[2]);
+			    PreparedStatement_setInt(pfm, 5, timestamp);
+			    PreparedStatement_execute(pfm);
+			}
 		    }
 		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SQL: Update Status Table " << endl; }
 		    /* Check if Passiv Check */
@@ -1383,6 +1452,51 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_setString(ihhd, 7, ec[4]);
 			PreparedStatement_setInt(ihhd, 8, timestamp);
 			PreparedStatement_execute(ihhd);
+			/* check for state change */
+			if (temp_host->current_state != temp_host->last_state) {
+			    PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
+			    PreparedStatement_setInt(msc, 1, hstid);
+			    PreparedStatement_setInt(msc, 2, srvid);
+			    PreparedStatement_setInt(msc, 3, temp_host->current_state);
+			    PreparedStatement_setInt(msc, 4, temp_host->last_state);
+			    PreparedStatement_setString(msc, 5, ec[2]);
+			    PreparedStatement_setInt(msc, 6, 1);
+			    PreparedStatement_setInt(msc, 7, 0);
+			    PreparedStatement_setInt(msc, 8, timestamp);
+			    PreparedStatement_execute(msc);
+			    /* Remove Acknowledgement */
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Remove Acknowledgement" << endl; }
+			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
+			    PreparedStatement_setInt(msc2, 1, srvid);
+			    PreparedStatement_execute(msc2);
+			    /* Prepare for Mailing */
+			    int mtyp;
+			    switch (temp_host->last_state) {
+				case 0:
+				    mtyp=3;
+				    break;
+				case 1:
+				    if (temp_host->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
+				    break;
+				case 2:
+				    if (temp_host->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
+				    break;
+				case 3:
+				    if (temp_host->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
+				    break;
+				default:
+				    mtyp=3;
+				    break;
+			    }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Fill Monitoring Mailing" << endl; }
+			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
+			    PreparedStatement_setInt(pfm, 1, hstid);
+			    PreparedStatement_setInt(pfm, 2, srvid);
+			    PreparedStatement_setInt(pfm, 3, mtyp);
+			    PreparedStatement_setString(pfm, 4, ec[2]);
+			    PreparedStatement_setInt(pfm, 5, timestamp);
+			    PreparedStatement_execute(pfm);
+			}
 		    } else {
 			PreparedStatement_T ihpd = Connection_prepareStatement(con, "INSERT INTO monitoring_status(HSTID,SRVID,OUTPUT,LONG_OUTPUT,CURRENT_STATE,LAST_STATE,LAST_CHECK,NEXT_CHECK,LAST_TIME_OK,LAST_TIME_WA,LAST_TIME_CR,LAST_TIME_UN,PERCENT_STATE_CHANGE,PERF_DATA,ACK,ACKID,DTM,DTMID,CREATED) VALUES (?,?,encode(?,'base64'),encode(?,'base64'),?,?,?,?,?,?,?,?,?,encode(?,'base64'),false,'0',false,'0',?)");
 			PreparedStatement_setInt(ihpd, 1, hstid);
@@ -1412,6 +1526,33 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_setString(ihhd, 7, ec[4]);
 			PreparedStatement_setInt(ihhd, 8, timestamp);
 			PreparedStatement_execute(ihhd);
+			/* check for state change */
+			if (temp_host->current_state > 0) {
+			    PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
+			    PreparedStatement_setInt(msc, 1, hstid);
+			    PreparedStatement_setInt(msc, 2, srvid);
+			    PreparedStatement_setInt(msc, 3, temp_host->current_state);
+			    PreparedStatement_setInt(msc, 4, 0);
+			    PreparedStatement_setString(msc, 5, ec[2]);
+			    PreparedStatement_setInt(msc, 6, 1);
+			    PreparedStatement_setInt(msc, 7, 0);
+			    PreparedStatement_setInt(msc, 8, timestamp);
+			    PreparedStatement_execute(msc);
+			    /* Remove Acknowledgement */
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Remove Acknowledgement" << endl; }
+			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
+			    PreparedStatement_setInt(msc2, 1, srvid);
+			    PreparedStatement_execute(msc2);
+			    /* Prepare for Mailing */
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS: Fill Monitoring Mailing" << endl; }
+			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
+			    PreparedStatement_setInt(pfm, 1, hstid);
+			    PreparedStatement_setInt(pfm, 2, srvid);
+			    PreparedStatement_setInt(pfm, 3, 4);
+			    PreparedStatement_setString(pfm, 4, ec[2]);
+			    PreparedStatement_setInt(pfm, 5, timestamp);
+			    PreparedStatement_execute(pfm);
+			}
 		    }
 		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SQL: Update Status Table " << endl; }
 		    /* Check if Passiv Check */
@@ -1768,117 +1909,6 @@ int id2sc_handle_data(int event_type, void *data) {
 		} FINALLY {
 		    Connection_close(con);
 		} END_TRY;
-	    }
-	    break;
-	case NEBCALLBACK_STATE_CHANGE_DATA:
-	    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH: NEBCALLBACK_STATE_CHANGE_DATA " << endl; }
-		if((schangedata = (nebstruct_statechange_data *)data)) {
-		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] STATE_CHANGE: " << schangedata->host_name << endl; 
-		    type = "tbd"; mode = "tbd"; name = "tbd"; /* tbd = to be defined */ int hstid=0000; int srvid=0000; int timestamp = (int)time(NULL); int last_state; int state;
-		    /* get the last state info */
-		    if (schangedata->service_description == NULL) {
-			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] HOST_CHANGE: " << endl; }
-			temp_host = (host *)schangedata->object_ptr;
-			es[0] = escape_buffer(temp_host->name);
-			es[1] = "SYSTEM_ICMP_REQUEST";
-			last_state = temp_host->last_state;
-			state = schangedata->state;
-			ec[2] = escape_buffer(temp_host->plugin_output);
-			es[7] = es[1].substr(es[1].find_first_of("_")+1);
-			es[8] = s.Trimm(s.ToString(temp_host->address));
-		    } else {
-			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SERVICE_CHANGE: " << endl; }
-			temp_service = (service *)schangedata->object_ptr;
-			temp_host = (host *)temp_service->host_ptr;
-			es[0] = escape_buffer(temp_service->host_name);
-			es[1] = escape_buffer(temp_service->display_name);
-			last_state = temp_service->last_state;
-			ec[2] = escape_buffer(temp_service->plugin_output);
-			state = schangedata->state;
-			es[7] = es[1].substr(es[1].find_first_of("_")+1);
-			es[8] = s.Trimm(s.ToString(temp_host->address));
-		    }
-
-		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-CHANGE_STATUS: " << es[1] << endl; }
-		    /* deformat service description string: <TYPE>_<MODE>_<NAME>*/
-		    type = es[1].substr(0,es[1].find_first_of("_"));
-		    mode = es[7].substr(0, es[7].find_first_of("_"));
-		    name = es[7].substr(es[7].find_first_of("_")+1);
-
-		    TRY {
-			/* Get Host ID */
-			PreparedStatement_T ghid = Connection_prepareStatement(con, "SELECT hstid FROM monitoring_info_host WHERE instid=? AND hstln=? AND ipaddr=?");
-			PreparedStatement_setInt(ghid, 1, instid);
-			PreparedStatement_setString(ghid, 2, es[0].c_str());
-			PreparedStatement_setString(ghid, 3, es[8].c_str());
-			ResultSet_T instanceGHID = PreparedStatement_executeQuery(ghid);
-			if (ResultSet_next(instanceGHID)) {
-		    	    hstid = ResultSet_getIntByName(instanceGHID, "hstid");
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SQL: Get Host ID :: " << hstid << endl; }
-			    /* Service */
-			    PreparedStatement_T gsid = Connection_prepareStatement(con, "SELECT srvid FROM monitoring_info_service WHERE instid=? AND hstid=? AND srvna=?");
-			    PreparedStatement_setInt(gsid, 1, instid);
-			    PreparedStatement_setInt(gsid, 2, hstid);
-			    PreparedStatement_setString (gsid, 3, es[1].c_str());
-			    ResultSet_T instanceGSID = PreparedStatement_executeQuery(gsid);
-			    if (ResultSet_next(instanceGSID)) {
-		    		srvid = ResultSet_getIntByName(instanceGSID, "srvid");
-				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SQL: Get Service ID :: " << srvid << endl; }
-				PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
-				PreparedStatement_setInt(msc, 1, hstid);
-				PreparedStatement_setInt(msc, 2, srvid);
-				PreparedStatement_setInt(msc, 3, state);
-				PreparedStatement_setInt(msc, 4, last_state);
-				PreparedStatement_setString(msc, 5, ec[2]);
-				PreparedStatement_setInt(msc, 6, 1);
-				PreparedStatement_setInt(msc, 7, 0);
-				PreparedStatement_setInt(msc, 8, timestamp);
-			        PreparedStatement_execute(msc);
-			        /* Remove Acknowledgement */
-			        PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
-				PreparedStatement_setInt(msc2, 1, srvid);
-			        PreparedStatement_execute(msc2);
-				/* Prepare for Mailing */
-				int mtyp;
-				switch (last_state) {
-				    case 0:
-					mtyp=3;
-					break;
-				    case 1:
-					if (state == 0) { mtyp = 4; } else { mtyp = 3; }
-					break;
-				    case 2:
-					if (state == 0) { mtyp = 4; } else { mtyp = 3; }
-					break;
-				    case 3:
-					if (state == 0) { mtyp = 4; } else { mtyp = 3; }
-					break;
-				    default:
-					mtyp=3;
-					break;
-				}
-				if (last_state == 0) { mtyp = 3; }
-				PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,'system',?,'0','0','0',?)");
-				PreparedStatement_setInt(pfm, 1, hstid);
-				PreparedStatement_setInt(pfm, 2, srvid);
-				PreparedStatement_setInt(pfm, 3, mtyp);
-				PreparedStatement_setString(pfm, 4, ec[2]);
-				PreparedStatement_setInt(pfm, 5, timestamp);
-				PreparedStatement_execute(pfm);
-			    }
-			} else {
-			    break;
-			}
-		    } CATCH(SQLException) {
-			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_STATE_CHANGE_DATA SQLException - %s :: %s :: %s\n", es[0].c_str(), es[1].c_str(), Exception_frame.message);
-			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc: NEBCALLBACK_STATE_CHANGE_DATA SQLException - " << Exception_frame.message << endl; }
-		    } FINALLY {
-			Connection_close(con);
-			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] STATE_CHANGE_CONNECTION_CLOSE: done. " << endl; }
-		    } END_TRY;
-		}
 	    }
 	    break;
 	case NEBCALLBACK_DOWNTIME_DATA:
