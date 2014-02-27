@@ -93,6 +93,7 @@ extern "C" int nebmodule_init(int flags, char *args, nebmodule *handle) {
     neb_register_callback(NEBCALLBACK_HOST_STATUS_DATA, id2sc_module_handle, 0, id2sc_handle_data);
     neb_register_callback(NEBCALLBACK_PROGRAM_STATUS_DATA, id2sc_module_handle, 0, id2sc_handle_data);
     neb_register_callback(NEBCALLBACK_STATE_CHANGE_DATA, id2sc_module_handle, 0, id2sc_handle_data);
+    neb_register_callback(NEBCALLBACK_DOWNTIME_DATA, id2sc_module_handle, 0, id2sc_handle_data);
 
     if (debug.compare("on") == 0) {
 	debugfile << "[" << time(NULL) << "] CALLBACKS: ... done!" << endl;
@@ -122,6 +123,7 @@ extern "C" int nebmodule_deinit(int flags, int reason) {
     neb_deregister_callback(NEBCALLBACK_HOST_STATUS_DATA, id2sc_handle_data);
     neb_deregister_callback(NEBCALLBACK_PROGRAM_STATUS_DATA, id2sc_handle_data);
     neb_deregister_callback(NEBCALLBACK_STATE_CHANGE_DATA, id2sc_handle_data);
+    neb_deregister_callback(NEBCALLBACK_DOWNTIME_DATA, id2sc_handle_data);
 
     if (debug.compare("on") == 0) {
 	debugfile << "[" << time(NULL) << "] CALLBACKS: ... done!" << endl;
@@ -145,6 +147,7 @@ int id2sc_handle_data(int event_type, void *data) {
     nebstruct_host_status_data *hsdata = NULL;
     nebstruct_program_status_data *psdata = NULL;
     nebstruct_statechange_data *schangedata = NULL;
+    nebstruct_downtime_data *dtdata = NULL;
     service *temp_service = NULL;
     host *temp_host = NULL;
     string es[100];
@@ -1520,6 +1523,14 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
 				    PreparedStatement_setInt(stu, 1, tid);
 				    PreparedStatement_execute(stu);
+				    /* Prepare for Mailing */
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'5',?,?,'0',?)");
+				    PreparedStatement_setInt(pfm, 1, hstid);
+				    PreparedStatement_setInt(pfm, 2, srvid);
+				    PreparedStatement_setString(pfm, 3, usr.c_str());
+				    PreparedStatement_setString(pfm, 4, comment.c_str());
+				    PreparedStatement_setInt(pfm, 5, timestamp);
+				    PreparedStatement_execute(pfm);
 				} CATCH(SQLException) {
 				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
 				    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
@@ -1538,6 +1549,14 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
 				    PreparedStatement_setInt(stu, 1, tid);
 				    PreparedStatement_execute(stu);
+				    /* Prepare for Mailing */
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'5',?,?,'0',?)");
+				    PreparedStatement_setInt(pfm, 1, hstid);
+				    PreparedStatement_setInt(pfm, 2, srvid);
+				    PreparedStatement_setString(pfm, 3, usr.c_str());
+				    PreparedStatement_setString(pfm, 4, comment.c_str());
+				    PreparedStatement_setInt(pfm, 5, timestamp);
+				    PreparedStatement_execute(pfm);
 				} CATCH(SQLException) {
 				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
 				    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
@@ -1568,7 +1587,7 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_setInt(said, 2, timestamp);
 				    ResultSet_T instanceSAID = PreparedStatement_executeQuery(said);
 				    if (ResultSet_next(instanceSAID)) {
-					PreparedStatement_T msc3 = Connection_prepareStatement(con, "UPDATE monitoring_downtime SET dtm=true, dtmid=? WHERE srvid=?");
+					PreparedStatement_T msc3 = Connection_prepareStatement(con, "UPDATE monitoring_status SET dtm=true, dtmid=? WHERE srvid=?");
 					PreparedStatement_setInt(msc3, 1, ResultSet_getIntByName(instanceSAID, "dtmid") );
 					PreparedStatement_setInt(msc3, 2, srvid );
 			    		PreparedStatement_execute(msc3);
@@ -1577,6 +1596,14 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
 				    PreparedStatement_setInt(stu, 1, tid);
 				    PreparedStatement_execute(stu);
+				    /* Prepare for Mailing */
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'2',?,?,'0',?)");
+				    PreparedStatement_setInt(pfm, 1, hstid);
+				    PreparedStatement_setInt(pfm, 2, srvid);
+				    PreparedStatement_setString(pfm, 3, usr.c_str());
+				    PreparedStatement_setString(pfm, 4, comment.c_str());
+				    PreparedStatement_setInt(pfm, 5, timestamp);
+				    PreparedStatement_execute(pfm);
 				} CATCH(SQLException) {
 				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
 				    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
@@ -1616,6 +1643,14 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
 				    PreparedStatement_setInt(stu, 1, tid);
 				    PreparedStatement_execute(stu);
+				    /* Prepare for Mailing */
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'2',?,?,'0',?)");
+				    PreparedStatement_setInt(pfm, 1, hstid);
+				    PreparedStatement_setInt(pfm, 2, srvid);
+				    PreparedStatement_setString(pfm, 3, usr.c_str());
+				    PreparedStatement_setString(pfm, 4, comment.c_str());
+				    PreparedStatement_setInt(pfm, 5, timestamp);
+				    PreparedStatement_execute(pfm);
 				} CATCH(SQLException) {
 				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
 				    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
@@ -1654,6 +1689,14 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
 				    PreparedStatement_setInt(stu, 1, tid);
 				    PreparedStatement_execute(stu);
+				    /* Prepare for Mailing */
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'1',?,?,'0',?)");
+				    PreparedStatement_setInt(pfm, 1, hstid);
+				    PreparedStatement_setInt(pfm, 2, srvid);
+				    PreparedStatement_setString(pfm, 3, usr.c_str());
+				    PreparedStatement_setString(pfm, 4, comment.c_str());
+				    PreparedStatement_setInt(pfm, 5, timestamp);
+				    PreparedStatement_execute(pfm);
 				} CATCH(SQLException) {
 				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
 				    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
@@ -1692,6 +1735,14 @@ int id2sc_handle_data(int event_type, void *data) {
 				    PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
 				    PreparedStatement_setInt(stu, 1, tid);
 				    PreparedStatement_execute(stu);
+				    /* Prepare for Mailing */
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'1',?,?,'0',?)");
+				    PreparedStatement_setInt(pfm, 1, hstid);
+				    PreparedStatement_setInt(pfm, 2, srvid);
+				    PreparedStatement_setString(pfm, 3, usr.c_str());
+				    PreparedStatement_setString(pfm, 4, comment.c_str());
+				    PreparedStatement_setInt(pfm, 5, timestamp);
+				    PreparedStatement_execute(pfm);
 				} CATCH(SQLException) {
 				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
 				    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
@@ -1783,6 +1834,33 @@ int id2sc_handle_data(int event_type, void *data) {
 			        PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
 				PreparedStatement_setInt(msc2, 1, srvid);
 			        PreparedStatement_execute(msc2);
+				/* Prepare for Mailing */
+				int mtyp;
+				switch (last_state) {
+				    case 0:
+					mtyp=3;
+					break;
+				    case 1:
+					if (state == 0) { mtyp = 4; } else { mtyp = 3; }
+					break;
+				    case 2:
+					if (state == 0) { mtyp = 4; } else { mtyp = 3; }
+					break;
+				    case 3:
+					if (state == 0) { mtyp = 4; } else { mtyp = 3; }
+					break;
+				    default:
+					mtyp=3;
+					break;
+				}
+				if (last_state == 0) { mtyp = 3; }
+				PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,?,'system',?,'0',?)");
+				PreparedStatement_setInt(pfm, 1, hstid);
+				PreparedStatement_setInt(pfm, 2, srvid);
+				PreparedStatement_setInt(pfm, 3, mtyp);
+				PreparedStatement_setString(pfm, 4, ec[2]);
+				PreparedStatement_setInt(pfm, 5, timestamp);
+				PreparedStatement_execute(pfm);
 			    }
 			} else {
 			    break;
@@ -1797,6 +1875,52 @@ int id2sc_handle_data(int event_type, void *data) {
 			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] STATE_CHANGE_CONNECTION_CLOSE: done. " << endl; }
 		    } END_TRY;
 		}
+	    }
+	    break;
+	case NEBCALLBACK_DOWNTIME_DATA:
+	    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH: NEBCALLBACK_DOWNTIME_DATA " << endl; }
+	    if ((dtdata = (nebstruct_downtime_data *)data)) {
+		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] DOWNTIME: " << dtdata->downtime_id << endl; }
+		/* get data from struct */
+		es[0] = escape_buffer(dtdata->host_name);
+		es[1] = escape_buffer(dtdata->service_description);
+		int dtype = dtdata->downtime_type;
+		time_t dstart = dtdata->start_time;
+		time_t dend = dtdata->end_time;
+		int timestamp = (int)time(NULL);
+		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] DOWNTIME GET_INFO: host = " << es[0] << ", service = " << es[1] << " __ " << dtype << "::" << dstart << "::" << dend << endl; }
+		con = ConnectionPool_getConnection(pool);
+		TRY {
+		    PreparedStatement_T ghid = Connection_prepareStatement(con, "select a.hstid,a.srvid from monitoring_status a, monitoring_info_host b, monitoring_info_service c, monitoring_downtime d where a.hstid=b.hstid and a.srvid=c.srvid and a.dtmid=d.dtmid and b.instid=? and b.hstln=? and c.srvna=? and a.dtm=true and d.tsend<?");
+		    PreparedStatement_setInt(ghid, 1, instid);
+		    PreparedStatement_setString(ghid, 2, es[0].c_str());
+		    PreparedStatement_setString(ghid, 3, es[1].c_str());
+		    PreparedStatement_setInt(ghid, 4, timestamp);
+		    ResultSet_T instanceGHID = PreparedStatement_executeQuery(ghid);
+		    if (ResultSet_next(instanceGHID)) {
+		        int hstid = ResultSet_getIntByName(instanceGHID, "hstid");
+		        int srvid = ResultSet_getIntByName(instanceGHID, "srvid");
+		        if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-DOWNTIME: Host ID :: " << hstid << " Service ID :: " << srvid << endl; }
+		        /* Remove Downtime */
+			PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET dtm=false, dtmid='0' WHERE srvid=?");
+			PreparedStatement_setInt(msc2, 1, srvid);
+			PreparedStatement_execute(msc2);
+			/* Prepare for Mailing */
+			PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,CREATED) VALUES (false,?,?,'2',encode('system','base64'),encode('Die Downtime des Services ist beendet.','base64'),'0',?)");
+			PreparedStatement_setInt(pfm, 1, hstid);
+			PreparedStatement_setInt(pfm, 2, srvid);
+			PreparedStatement_setInt(pfm, 3, timestamp);
+			PreparedStatement_execute(pfm);
+		    }
+		} CATCH(SQLException) {
+		    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_DOWNTIME_DATA SQLException - %s :: %s :: %s\n", es[0].c_str(), es[1].c_str(), Exception_frame.message);
+		    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+		    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc: NEBCALLBACK_DOWNTIME_DATA SQLException - " << Exception_frame.message << endl; }
+		} FINALLY {
+		    Connection_close(con);
+		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << " DOWNTIME_CONNECTION_CLOSE: done. " << endl; }
+		} END_TRY;
 	    }
 	    break;
 	default:
