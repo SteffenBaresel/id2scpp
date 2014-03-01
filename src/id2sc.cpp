@@ -297,7 +297,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_setInt(ihhd, 8, timestamp);
 			PreparedStatement_execute(ihhd);
 			/* check for state change */
-			if (temp_service->current_state != temp_service->last_state) {
+			if ( (temp_service->current_state != temp_service->last_state) && (temp_service->problem_has_been_acknowledged == 0) ) {
 			    PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
 			    PreparedStatement_setInt(msc, 1, hstid);
 			    PreparedStatement_setInt(msc, 2, srvid);
@@ -309,7 +309,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			    PreparedStatement_setInt(msc, 8, timestamp);
 			    PreparedStatement_execute(msc);
 			    /* Remove Acknowledgement */
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Remove Acknowledgement" << endl; }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Remove Acknowledgement cs " << temp_service->current_state << " != ls " << temp_service->last_state << " phba == 0 :: " << temp_service->problem_has_been_acknowledged << endl; }
 			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
 			    PreparedStatement_setInt(msc2, 1, srvid);
 			    PreparedStatement_execute(msc2);
@@ -371,7 +371,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_setInt(ihhd, 8, timestamp);
 			PreparedStatement_execute(ihhd);
 			/* check for state change */
-			if (temp_service->current_state > 0) {
+			if ( (temp_service->current_state > 0) && (temp_service->problem_has_been_acknowledged == 0) ) {
 			    PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
 			    PreparedStatement_setInt(msc, 1, hstid);
 			    PreparedStatement_setInt(msc, 2, srvid);
@@ -383,7 +383,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			    PreparedStatement_setInt(msc, 8, timestamp);
 			    PreparedStatement_execute(msc);
 			    /* Remove Acknowledgement */
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Remove Acknowledgement" << endl; }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Remove Acknowledgement cs > 0 && phba == 0" << endl; }
 			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
 			    PreparedStatement_setInt(msc2, 1, srvid);
 			    PreparedStatement_execute(msc2);
@@ -1453,7 +1453,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_setInt(ihhd, 8, timestamp);
 			PreparedStatement_execute(ihhd);
 			/* check for state change */
-			if (temp_host->current_state != temp_host->last_state) {
+			if ( (temp_host->current_state != temp_host->last_state) && (temp_host->problem_has_been_acknowledged == 0) ) {
 			    PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
 			    PreparedStatement_setInt(msc, 1, hstid);
 			    PreparedStatement_setInt(msc, 2, srvid);
@@ -1465,7 +1465,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			    PreparedStatement_setInt(msc, 8, timestamp);
 			    PreparedStatement_execute(msc);
 			    /* Remove Acknowledgement */
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS STATE_CHANGE: Remove Acknowledgement" << endl; }
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS STATE_CHANGE: Remove Acknowledgement cs != ls" << endl; }
 			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
 			    PreparedStatement_setInt(msc2, 1, srvid);
 			    PreparedStatement_execute(msc2);
@@ -1527,7 +1527,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_setInt(ihhd, 8, timestamp);
 			PreparedStatement_execute(ihhd);
 			/* check for state change */
-			if (temp_host->current_state > 0) {
+			if ( (temp_host->current_state > 0) && (temp_host->problem_has_been_acknowledged == 0) ) {
 			    PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
 			    PreparedStatement_setInt(msc, 1, hstid);
 			    PreparedStatement_setInt(msc, 2, srvid);
