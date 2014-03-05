@@ -44,6 +44,8 @@ Connection_T con;
 int instid;
 string temp[1010];
 int cc=0;
+int dd=0;
 extern "C" char *escape_buffer(char *);
+int MonitoringTask();
 
 #endif

@@ -103,6 +103,14 @@ extern "C" int nebmodule_init(int flags, char *args, nebmodule *handle) {
 	debugfile << "[" << time(NULL) << "] ########################################################################### " << endl;
     }
 
+    /* Schedule Monitoring Task every 5 seconds */
+    time_t current_time;
+    unsigned long interval;
+    time(&current_time);
+    interval = 5;
+    schedule_new_event(EVENT_USER_FUNCTION, TRUE, current_time + interval, TRUE, interval, NULL, TRUE, (int *)MonitoringTask, NULL, 0);
+    /* End */
+
     return 0;
 }
 
@@ -152,6 +160,7 @@ int id2sc_handle_data(int event_type, void *data) {
     string type;
     string mode;
     string name;
+    string line;
     Configuration s;
     char *array[101];
     int i;
@@ -193,16 +202,24 @@ int id2sc_handle_data(int event_type, void *data) {
 		type = es[1].substr(0,es[1].find_first_of("_"));
 		mode = es[7].substr(0, es[7].find_first_of("_"));
 		name = es[7].substr(es[7].find_first_of("_")+1);
+		line = es[0] + "::" + es[1];
 		
 		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH_PRE: temp[100] = " << temp[100] << " :: name = " << name << " :: cc = " << cc << endl; }
 		
 		if(temp[100].empty()) { cc = 0; temp[100] = name; } else { if(temp[100].compare(name) != 0) { cc = 0; temp[100] = name; } else { cc++; } }
+		if(temp[101].empty()) { dd = 0; temp[101] = line; } else { if(temp[101].compare(line) != 0) { dd = 0; temp[101] = line; } else { dd++; } }
 		
-		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH_POST: temp[100] = " << temp[100] << " :: name = " << name << " :: cc = " << cc << endl; }
+		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH_POST: temp[100] = " << temp[100] << " :: name = " << name << " :: cc = " << cc << " :: temp[101] = " << temp[101] << " :: dd = " << dd << endl; }
 		
 		/* end */
 		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS-SPLIT: type = " << type << " :: mode = " << mode << " :: name = " << name << endl; }
 		/* basic actions */
+		
+	    if (dd > 0) {
+		
+		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS-DOUBLE ENTRY: dd > 0 Exit" << endl; }
+		
+	    } else {
 		con = ConnectionPool_getConnection(pool);
 		TRY {
 		    /* Get Host ID */
@@ -263,12 +280,13 @@ int id2sc_handle_data(int event_type, void *data) {
 			    srvid = ResultSet_getIntByName(instance22, "srvid");
 		        }
 		    }
-		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SQL: Get Service ID :: " << srvid << endl; }
+		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SQL: Get Service ID :: " << srvid << " check_type :: " << temp_service->check_type << " has_been_checked :: " << temp_service->has_been_checked << " is_executing :: " << temp_service->is_executing << " scheduled_downtime_depth :: " << temp_service->scheduled_downtime_depth << endl; }
 		    /* Insert or Update Status Table */
 		    PreparedStatement_T smise = Connection_prepareStatement(con, "SELECT sid FROM monitoring_status WHERE srvid=?");
 		    PreparedStatement_setInt(smise, 1, srvid);
 		    ResultSet_T instance3 = PreparedStatement_executeQuery(smise);
 		    if (ResultSet_next(instance3)) {
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS SERVICE Exist: " << endl; }
 			PreparedStatement_T uhpd = Connection_prepareStatement(con, "UPDATE monitoring_status SET OUTPUT=encode(?,'base64'), LONG_OUTPUT=encode(?,'base64'), CURRENT_STATE=?, LAST_STATE=?, LAST_CHECK=?, NEXT_CHECK=?, LAST_TIME_OK=?, LAST_TIME_WA=?, LAST_TIME_CR=?, LAST_TIME_UN=?, PERCENT_STATE_CHANGE=?, PERF_DATA=encode(?,'base64'), CREATED=? WHERE sid=?");
 			PreparedStatement_setString(uhpd, 1, ec[2]);
 			PreparedStatement_setString(uhpd, 2, ec[3]);
@@ -298,50 +316,63 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_execute(ihhd);
 			/* check for state change */
 			if ( (temp_service->current_state != temp_service->last_state) && (temp_service->problem_has_been_acknowledged == 0) ) {
-			    PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
-			    PreparedStatement_setInt(msc, 1, hstid);
-			    PreparedStatement_setInt(msc, 2, srvid);
-			    PreparedStatement_setInt(msc, 3, temp_service->current_state);
-			    PreparedStatement_setInt(msc, 4, temp_service->last_state);
-			    PreparedStatement_setString(msc, 5, ec[2]);
-			    PreparedStatement_setInt(msc, 6, 1);
-			    PreparedStatement_setInt(msc, 7, 0);
-			    PreparedStatement_setInt(msc, 8, timestamp);
-			    PreparedStatement_execute(msc);
-			    /* Remove Acknowledgement */
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Remove Acknowledgement cs " << temp_service->current_state << " != ls " << temp_service->last_state << " phba == 0 :: " << temp_service->problem_has_been_acknowledged << endl; }
-			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
-			    PreparedStatement_setInt(msc2, 1, srvid);
-			    PreparedStatement_execute(msc2);
-			    /* Prepare for Mailing */
-			    int mtyp;
-			    switch (temp_service->last_state) {
-				case 0:
-				    mtyp=3;
-				    break;
-				case 1:
-				    if (temp_service->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
-				    break;
-				case 2:
-				    if (temp_service->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
-				    break;
-				case 3:
-				    if (temp_service->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
-				    break;
-				default:
-				    mtyp=3;
-				    break;
+			    /* Select if service already new acknowledged */
+			    PreparedStatement_T scid = Connection_prepareStatement(con, "SELECT ackid FROM monitoring_acknowledge WHERE hstid=? AND srvid=? AND newe=true");
+			    PreparedStatement_setInt(scid, 1, hstid);
+			    PreparedStatement_setInt(scid, 2, srvid);
+			    ResultSet_T instanceSCID = PreparedStatement_executeQuery(scid);
+			    if (ResultSet_next(instanceSCID)) {
+				PreparedStatement_T mssc3 = Connection_prepareStatement(con, "UPDATE monitoring_acknowledge SET newe=false WHERE ackid=?");
+				PreparedStatement_setInt(mssc3, 1, ResultSet_getIntByName(instanceSCID, "ackid") );
+				PreparedStatement_setInt(mssc3, 2, srvid );
+				PreparedStatement_execute(mssc3);
+			    } else {
+				PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
+				PreparedStatement_setInt(msc, 1, hstid);
+				PreparedStatement_setInt(msc, 2, srvid);
+				PreparedStatement_setInt(msc, 3, temp_service->current_state);
+				PreparedStatement_setInt(msc, 4, temp_service->last_state);
+				PreparedStatement_setString(msc, 5, ec[2]);
+				PreparedStatement_setInt(msc, 6, 1);
+				PreparedStatement_setInt(msc, 7, 0);
+				PreparedStatement_setInt(msc, 8, timestamp);
+				PreparedStatement_execute(msc);
+				/* Remove Acknowledgement */
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Remove Acknowledgement cs " << temp_service->current_state << " != ls " << temp_service->last_state << " phba == 0 :: " << temp_service->problem_has_been_acknowledged << endl; }
+				PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
+				PreparedStatement_setInt(msc2, 1, srvid);
+				PreparedStatement_execute(msc2);
+				/* Prepare for Mailing */
+				int mtyp;
+				switch (temp_service->last_state) {
+				    case 0:
+					mtyp=3;
+					break;
+				    case 1:
+					if (temp_service->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
+					break;
+				    case 2:
+					if (temp_service->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
+					break;
+				    case 3:
+					if (temp_service->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
+					break;
+				    default:
+					mtyp=3;
+					break;
+				}
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
+				PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
+				PreparedStatement_setInt(pfm, 1, hstid);
+				PreparedStatement_setInt(pfm, 2, srvid);
+				PreparedStatement_setInt(pfm, 3, mtyp);
+				PreparedStatement_setString(pfm, 4, ec[2]);
+				PreparedStatement_setInt(pfm, 5, timestamp);
+				PreparedStatement_execute(pfm);
 			    }
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
-			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
-			    PreparedStatement_setInt(pfm, 1, hstid);
-			    PreparedStatement_setInt(pfm, 2, srvid);
-			    PreparedStatement_setInt(pfm, 3, mtyp);
-			    PreparedStatement_setString(pfm, 4, ec[2]);
-			    PreparedStatement_setInt(pfm, 5, timestamp);
-			    PreparedStatement_execute(pfm);
 			}
 		    } else {
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS SERVICE Do not exist: " << endl; }
 			PreparedStatement_T ihpd = Connection_prepareStatement(con, "INSERT INTO monitoring_status(HSTID,SRVID,OUTPUT,LONG_OUTPUT,CURRENT_STATE,LAST_STATE,LAST_CHECK,NEXT_CHECK,LAST_TIME_OK,LAST_TIME_WA,LAST_TIME_CR,LAST_TIME_UN,PERCENT_STATE_CHANGE,PERF_DATA,ACK,ACKID,DTM,DTMID,CREATED) VALUES (?,?,encode(?,'base64'),encode(?,'base64'),?,?,?,?,?,?,?,?,?,encode(?,'base64'),false,'0',false,'0',?)");
 			PreparedStatement_setInt(ihpd, 1, hstid);
 			PreparedStatement_setInt(ihpd, 2, srvid);
@@ -388,11 +419,20 @@ int id2sc_handle_data(int event_type, void *data) {
 			    PreparedStatement_setInt(msc2, 1, srvid);
 			    PreparedStatement_execute(msc2);
 			    /* Prepare for Mailing */
+			    int mtyp;
+			    switch (temp_service->current_state) {
+				case 0:
+				    mtyp=4;
+				    break;
+				default:
+				    mtyp=3;
+				    break;
+			    }
 			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
 			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
 			    PreparedStatement_setInt(pfm, 1, hstid);
 			    PreparedStatement_setInt(pfm, 2, srvid);
-			    PreparedStatement_setInt(pfm, 3, 4);
+			    PreparedStatement_setInt(pfm, 3, mtyp);
 			    PreparedStatement_setString(pfm, 4, ec[2]);
 			    PreparedStatement_setInt(pfm, 5, timestamp);
 			    PreparedStatement_execute(pfm);
@@ -1325,6 +1365,8 @@ int id2sc_handle_data(int event_type, void *data) {
 		} END_TRY;
 		/* end */
 	    }
+	
+	    }
 	    break;
 	case NEBCALLBACK_HOST_STATUS_DATA:
 	    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH: NEBCALLBACK_SERVICE_STATUS_DATA " << endl; }
@@ -1390,7 +1432,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			    hstid = ResultSet_getIntByName(instance12, "hstid");
 		        }
 		    }
-		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SQL: Get Host ID :: " << hstid << endl; }
+		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SQL: Get Host ID :: " << hstid << " check_type :: " << temp_host->check_type << " has_been_checked :: " << temp_host->has_been_checked << " is_executing :: " << temp_host->is_executing << " scheduled_downtime_depth :: " << temp_host->scheduled_downtime_depth << endl; }
 		    /* Service */
 		    PreparedStatement_T shsrvd = Connection_prepareStatement(con, "SELECT srvid FROM monitoring_info_service WHERE instid=? AND hstid=? AND srvna=?");
 		    PreparedStatement_setInt(shsrvd, 1, instid);
@@ -1544,6 +1586,15 @@ int id2sc_handle_data(int event_type, void *data) {
 			    PreparedStatement_setInt(msc2, 1, srvid);
 			    PreparedStatement_execute(msc2);
 			    /* Prepare for Mailing */
+			    int mtyp;
+			    switch (temp_host->current_state) {
+				case 0:
+				    mtyp=4;
+				    break;
+				default:
+				    mtyp=3;
+				    break;
+			    }
 			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
 			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
 			    PreparedStatement_setInt(pfm, 1, hstid);
@@ -1624,7 +1675,6 @@ int id2sc_handle_data(int event_type, void *data) {
 	    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH: NEBCALLBACK_PROGRAM_STATUS_DATA " << endl; }
 	    if ((psdata = (nebstruct_program_status_data *)data)) {
 		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] PROGRAM_STATUS: " << psdata->pid << endl; }
-		int timestamp = (int)time(NULL);
 		con = ConnectionPool_getConnection(pool);
 		TRY {
 		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] PROGRAM_STATUS: UPDATE INFO_INSTANCE" << endl; }
@@ -1633,274 +1683,6 @@ int id2sc_handle_data(int event_type, void *data) {
 		    PreparedStatement_setInt(iupd, 2, (unsigned long)psdata->program_start);
 		    PreparedStatement_setInt(iupd, 3, psdata->pid);
 		    PreparedStatement_execute(iupd);
-		    /*  */
-		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] PROGRAM_STATUS: SELECT TASK SELECT" << endl; }
-		    PreparedStatement_T st = Connection_prepareStatement(con, "select a.tid,a.type,b.hstln,c.srvna,a.tsstart,a.tsend,a.usr,a.comment,a.hstid,a.srvid from monitoring_task a, monitoring_info_host b, monitoring_info_service c where a.hstid=b.hstid and a.srvid=c.srvid and a.done=false and a.instid=?");
-		    PreparedStatement_setInt(st, 1, instid);
-		    ResultSet_T result = PreparedStatement_executeQuery(st);
-		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] PROGRAM_STATUS: SELECT TASK FCT" << endl; }
-		    if (ResultSet_next(result)) {
-			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] PROGRAM_STATUS: SELECT TASK VARIABLE" << endl; }
-			int tid = ResultSet_getIntByName(result, "tid");
-			int type = ResultSet_getIntByName(result, "type");
-			string host = ResultSet_getString(result, 3);
-			string service = ResultSet_getString(result, 4);
-			long tsstart = ResultSet_getIntByName(result, "tsstart");
-			long tsend = ResultSet_getIntByName(result, "tsend");
-			string usr = ResultSet_getString(result, 7);
-			string comment = ResultSet_getString(result, 8);
-			int hstid = ResultSet_getIntByName(result, "hstid");
-			int srvid = ResultSet_getIntByName(result, "srvid");
-			long duration = tsend-tsstart;
-			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] PROGRAM_STATUS: type = " << type << ", target = " << host << "@" << service << ", tsstart = " << tsstart << ", tsend = " << tsend << endl; }
-			/* Switch Type */
-			switch (type) {
-			    case 0: /* ReSchedule Service: SCHEDULE_FORCED_SVC_CHECK;<host_name>;<service_description>;<check_time> */
-				snprintf(temp_buffer, sizeof(temp_buffer) - 1, "[%lu] SCHEDULE_FORCED_SVC_CHECK;%s;%s;%lu\n", tsstart, host.c_str(), service.c_str(), tsstart);
-				temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-				config.WriteToCmdfile(commandfile,temp_buffer);
-				/* Update done to true */
-				TRY {
-				    PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
-				    PreparedStatement_setInt(stu, 1, tid);
-				    PreparedStatement_execute(stu);
-				    /* Prepare for Mailing */
-				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'5',?,?,'0','0','0',?)");
-				    PreparedStatement_setInt(pfm, 1, hstid);
-				    PreparedStatement_setInt(pfm, 2, srvid);
-				    PreparedStatement_setString(pfm, 3, usr.c_str());
-				    PreparedStatement_setString(pfm, 4, comment.c_str());
-				    PreparedStatement_setInt(pfm, 5, timestamp);
-				    PreparedStatement_execute(pfm);
-				} CATCH(SQLException) {
-				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
-				    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-				    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-				    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] PROGRAM_STATUS: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - " << Exception_frame.message << endl; }
-				} FINALLY {
-				    Connection_close(con);
-				} END_TRY;
-				break;
-			    case 1: /* ReSchedule Host: SCHEDULE_FORCED_HOST_CHECK;<host_name>;<check_time> */
-				snprintf(temp_buffer, sizeof(temp_buffer) - 1, "[%lu] SCHEDULE_FORCED_HOST_CHECK;%s;%lu\n", tsstart, host.c_str(), tsstart);
-				temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-				config.WriteToCmdfile(commandfile,temp_buffer);
-				/* Update done to true */
-				TRY {
-				    PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
-				    PreparedStatement_setInt(stu, 1, tid);
-				    PreparedStatement_execute(stu);
-				    /* Prepare for Mailing */
-				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'5',?,?,'0','0','0',?)");
-				    PreparedStatement_setInt(pfm, 1, hstid);
-				    PreparedStatement_setInt(pfm, 2, srvid);
-				    PreparedStatement_setString(pfm, 3, usr.c_str());
-				    PreparedStatement_setString(pfm, 4, comment.c_str());
-				    PreparedStatement_setInt(pfm, 5, timestamp);
-				    PreparedStatement_execute(pfm);
-				} CATCH(SQLException) {
-				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
-				    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-				    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-				    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] PROGRAM_STATUS: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - " << Exception_frame.message << endl; }
-				} FINALLY {
-				    Connection_close(con);
-				} END_TRY;
-				break;
-			    case 2: /* Define Service Downtime: SCHEDULE_SVC_DOWNTIME;<host_name>;<service_desription><start_time>;<end_time>;<fixed>;<trigger_id>;<duration>;<author>;<comment> */
-				snprintf(temp_buffer, sizeof(temp_buffer) - 1, "[%lu] SCHEDULE_SVC_DOWNTIME;%s;%s;%lu;%lu;0;0;%lu;%s;%s\n", tsstart, host.c_str(), service.c_str(), tsstart, tsend, duration, usr.c_str(), comment.c_str());
-				temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-				config.WriteToCmdfile(commandfile,temp_buffer);
-				/* Update done to true */
-				TRY {
-				    PreparedStatement_T ihad = Connection_prepareStatement(con, "INSERT INTO monitoring_downtime(TSSTART,TSEND,USR,COMMENT,HSTID,SRVID,APPID,CREATED) VALUES (?,?,?,?,?,?,'0',?)");
-				    PreparedStatement_setInt(ihad, 1, tsstart);
-				    PreparedStatement_setInt(ihad, 2, tsend);
-				    PreparedStatement_setString(ihad, 3, usr.c_str());
-				    PreparedStatement_setString(ihad, 4, comment.c_str());
-				    PreparedStatement_setInt(ihad, 5, hstid);
-				    PreparedStatement_setInt(ihad, 6, srvid);
-				    PreparedStatement_setInt(ihad, 7, timestamp);
-				    PreparedStatement_execute(ihad);
-				    /* Select ackid */
-				    PreparedStatement_T said = Connection_prepareStatement(con, "SELECT dtmid FROM monitoring_downtime WHERE srvid=? AND created=?");
-				    PreparedStatement_setInt(said, 1, srvid);
-				    PreparedStatement_setInt(said, 2, timestamp);
-				    ResultSet_T instanceSAID = PreparedStatement_executeQuery(said);
-				    if (ResultSet_next(instanceSAID)) {
-					PreparedStatement_T msc3 = Connection_prepareStatement(con, "UPDATE monitoring_status SET dtm=true, dtmid=? WHERE srvid=?");
-					PreparedStatement_setInt(msc3, 1, ResultSet_getIntByName(instanceSAID, "dtmid") );
-					PreparedStatement_setInt(msc3, 2, srvid );
-			    		PreparedStatement_execute(msc3);
-				    }
-				    /* Abschluss */
-				    PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
-				    PreparedStatement_setInt(stu, 1, tid);
-				    PreparedStatement_execute(stu);
-				    /* Prepare for Mailing */
-				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'2',?,?,'0',?,?,?)");
-				    PreparedStatement_setInt(pfm, 1, hstid);
-				    PreparedStatement_setInt(pfm, 2, srvid);
-				    PreparedStatement_setString(pfm, 3, usr.c_str());
-				    PreparedStatement_setString(pfm, 4, comment.c_str());
-				    PreparedStatement_setInt(pfm, 5, tsstart);
-				    PreparedStatement_setInt(pfm, 6, tsend);
-				    PreparedStatement_setInt(pfm, 7, timestamp);
-				    PreparedStatement_execute(pfm);
-				} CATCH(SQLException) {
-				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
-				    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-				    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-				    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] PROGRAM_STATUS: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - " << Exception_frame.message << endl; }
-				} FINALLY {
-				    Connection_close(con);
-				} END_TRY;
-				break;
-			    case 3: /* Define Host incl. Service Downtime: SCHEDULE_HOST_SVC_DOWNTIME;<host_name>;<start_time>;<end_time>;<fixed>;<trigger_id>;<duration>;<author>;<comment> */
-				snprintf(temp_buffer, sizeof(temp_buffer) - 1, "[%lu] SCHEDULE_HOST_SVC_DOWNTIME;%s;%lu;%lu;0;0;%lu;%s;%s\n", tsstart, host.c_str(), tsstart, tsend, duration, usr.c_str(), comment.c_str());
-				temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-				config.WriteToCmdfile(commandfile,temp_buffer);
-				/* Update done to true */
-				TRY {
-				    PreparedStatement_T ihad = Connection_prepareStatement(con, "INSERT INTO monitoring_downtime(TSSTART,TSEND,USR,COMMENT,HSTID,SRVID,APPID,CREATED) VALUES (?,?,?,?,?,?,'0',?)");
-				    PreparedStatement_setInt(ihad, 1, tsstart);
-				    PreparedStatement_setInt(ihad, 2, tsend);
-				    PreparedStatement_setString(ihad, 3, usr.c_str());
-				    PreparedStatement_setString(ihad, 4, comment.c_str());
-				    PreparedStatement_setInt(ihad, 5, hstid);
-				    PreparedStatement_setInt(ihad, 6, srvid);
-				    PreparedStatement_setInt(ihad, 7, timestamp);
-				    PreparedStatement_execute(ihad);
-				    /* Select ackid */
-				    PreparedStatement_T said = Connection_prepareStatement(con, "SELECT dtmid FROM monitoring_downtime WHERE srvid=? AND created=?");
-				    PreparedStatement_setInt(said, 1, srvid);
-				    PreparedStatement_setInt(said, 2, timestamp);
-				    ResultSet_T instanceSAID = PreparedStatement_executeQuery(said);
-				    if (ResultSet_next(instanceSAID)) {
-					PreparedStatement_T msc3 = Connection_prepareStatement(con, "UPDATE monitoring_status SET dtm=true, dtmid=? WHERE hstid=?");
-					PreparedStatement_setInt(msc3, 1, ResultSet_getIntByName(instanceSAID, "dtmid") );
-					PreparedStatement_setInt(msc3, 2, hstid );
-			    		PreparedStatement_execute(msc3);
-				    }
-				    /* Abschluss */
-				    PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
-				    PreparedStatement_setInt(stu, 1, tid);
-				    PreparedStatement_execute(stu);
-				    /* Prepare for Mailing */
-				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'2',?,?,'0',?,?,?)");
-				    PreparedStatement_setInt(pfm, 1, hstid);
-				    PreparedStatement_setInt(pfm, 2, srvid);
-				    PreparedStatement_setString(pfm, 3, usr.c_str());
-				    PreparedStatement_setString(pfm, 4, comment.c_str());
-				    PreparedStatement_setInt(pfm, 5, tsstart);
-				    PreparedStatement_setInt(pfm, 6, tsend);
-				    PreparedStatement_setInt(pfm, 7, timestamp);
-				    PreparedStatement_execute(pfm);
-				} CATCH(SQLException) {
-				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
-				    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-				    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-				    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] PROGRAM_STATUS: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - " << Exception_frame.message << endl; }
-				} FINALLY {
-				    Connection_close(con);
-				} END_TRY;
-				break;
-			    case 4: /* Acknowledge Service Problem: ACKNOWLEDGE_SVC_PROBLEM;<host_name>;<service_description>;<sticky>;<notify>;<persistent>;<author>;<comment> */
-				snprintf(temp_buffer, sizeof(temp_buffer) - 1, "[%lu] ACKNOWLEDGE_SVC_PROBLEM;%s;%s;2;1;1;%s;%s\n", tsstart, host.c_str(), service.c_str(), usr.c_str(), comment.c_str());
-				temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-				config.WriteToCmdfile(commandfile,temp_buffer);
-				/* Update done to true */
-				TRY {
-				    PreparedStatement_T ihad = Connection_prepareStatement(con, "INSERT INTO monitoring_acknowledge(TS,USR,COMMENT,HSTID,SRVID,APPID,CREATED) VALUES (?,?,?,?,?,'0',?)");
-				    PreparedStatement_setInt(ihad, 1, tsstart);
-				    PreparedStatement_setString(ihad, 2, usr.c_str());
-				    PreparedStatement_setString(ihad, 3, comment.c_str());
-				    PreparedStatement_setInt(ihad, 4, hstid);
-				    PreparedStatement_setInt(ihad, 5, srvid);
-				    PreparedStatement_setInt(ihad, 6, timestamp);
-				    PreparedStatement_execute(ihad);
-				    /* Select ackid */
-				    PreparedStatement_T said = Connection_prepareStatement(con, "SELECT ackid FROM monitoring_acknowledge WHERE srvid=? AND created=?");
-				    PreparedStatement_setInt(said, 1, srvid);
-				    PreparedStatement_setInt(said, 2, timestamp);
-				    ResultSet_T instanceSAID = PreparedStatement_executeQuery(said);
-				    if (ResultSet_next(instanceSAID)) {
-					PreparedStatement_T msc3 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=true, ackid=? WHERE srvid=?");
-					PreparedStatement_setInt(msc3, 1, ResultSet_getIntByName(instanceSAID, "ackid") );
-					PreparedStatement_setInt(msc3, 2, srvid );
-			    		PreparedStatement_execute(msc3);
-				    }
-				    /* Abschluss */
-				    PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
-				    PreparedStatement_setInt(stu, 1, tid);
-				    PreparedStatement_execute(stu);
-				    /* Prepare for Mailing */
-				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'1',?,?,'0','0','0',?)");
-				    PreparedStatement_setInt(pfm, 1, hstid);
-				    PreparedStatement_setInt(pfm, 2, srvid);
-				    PreparedStatement_setString(pfm, 3, usr.c_str());
-				    PreparedStatement_setString(pfm, 4, comment.c_str());
-				    PreparedStatement_setInt(pfm, 5, timestamp);
-				    PreparedStatement_execute(pfm);
-				} CATCH(SQLException) {
-				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
-				    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-				    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-				    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] PROGRAM_STATUS: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - " << Exception_frame.message << endl; }
-				} FINALLY {
-				    Connection_close(con);
-				} END_TRY;
-				break;
-			    case 5: /* Acknowledge Host Problem: ACKNOWLEDGE_HOST_PROBLEM;<host_name>;<sticky>;<notify>;<persistent>;<author>;<comment> */
-				snprintf(temp_buffer, sizeof(temp_buffer) - 1, "[%lu] ACKNOWLEDGE_HOST_PROBLEM;%s;2;1;1;%s;%s\n", tsstart, host.c_str(), usr.c_str(), comment.c_str());
-				temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-				config.WriteToCmdfile(commandfile,temp_buffer);
-				/* Update done to true */
-				TRY {
-				    PreparedStatement_T ihad = Connection_prepareStatement(con, "INSERT INTO monitoring_acknowledge(TS,USR,COMMENT,HSTID,SRVID,APPID,CREATED) VALUES (?,?,?,?,?,'0',?)");
-				    PreparedStatement_setInt(ihad, 1, tsstart);
-				    PreparedStatement_setString(ihad, 2, usr.c_str());
-				    PreparedStatement_setString(ihad, 3, comment.c_str());
-				    PreparedStatement_setInt(ihad, 4, hstid);
-				    PreparedStatement_setInt(ihad, 5, srvid);
-				    PreparedStatement_setInt(ihad, 6, timestamp);
-				    PreparedStatement_execute(ihad);
-				    /* Select ackid */
-				    PreparedStatement_T said = Connection_prepareStatement(con, "SELECT ackid FROM monitoring_acknowledge WHERE srvid=? AND created=?");
-				    PreparedStatement_setInt(said, 1, srvid);
-				    PreparedStatement_setInt(said, 2, timestamp);
-				    ResultSet_T instanceSAID = PreparedStatement_executeQuery(said);
-				    if (ResultSet_next(instanceSAID)) {
-					PreparedStatement_T msc3 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=true, ackid=? WHERE srvid=?");
-					PreparedStatement_setInt(msc3, 1, ResultSet_getIntByName(instanceSAID, "ackid") );
-					PreparedStatement_setInt(msc3, 2, srvid );
-			    		PreparedStatement_execute(msc3);
-				    }
-				    /* Abschluss */
-				    PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
-				    PreparedStatement_setInt(stu, 1, tid);
-				    PreparedStatement_execute(stu);
-				    /* Prepare for Mailing */
-				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'1',?,?,'0','0','0',?)");
-				    PreparedStatement_setInt(pfm, 1, hstid);
-				    PreparedStatement_setInt(pfm, 2, srvid);
-				    PreparedStatement_setString(pfm, 3, usr.c_str());
-				    PreparedStatement_setString(pfm, 4, comment.c_str());
-				    PreparedStatement_setInt(pfm, 5, timestamp);
-				    PreparedStatement_execute(pfm);
-				} CATCH(SQLException) {
-				    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
-				    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
-				    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-				    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] PROGRAM_STATUS: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - " << Exception_frame.message << endl; }
-				} FINALLY {
-				    Connection_close(con);
-				} END_TRY;
-				break;
-			    default:
-				break;
-			}
-		    }
 		} CATCH(SQLException) {
 		    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: NEBCALLBACK_PROGRAM_STATUS_DATA SQLException - %s\n", Exception_frame.message);
 		    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
@@ -1966,6 +1748,298 @@ int id2sc_handle_data(int event_type, void *data) {
     return 0;
 }
 
+int MonitoringTask() {
+    int timestamp = (int)time(NULL);
+    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] MONITORING_TASK: " << endl; }
+    con = ConnectionPool_getConnection(pool);
+    TRY {
+	if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] MONITORING_TASK: SELECT Objects from table" << endl; }
+	PreparedStatement_T st = Connection_prepareStatement(con, "select a.tid,a.type,b.hstln,c.srvna,a.tsstart,a.tsend,a.usr,a.comment,a.hstid,a.srvid from monitoring_task a, monitoring_info_host b, monitoring_info_service c where a.hstid=b.hstid and a.srvid=c.srvid and a.done=false and a.instid=?");
+	PreparedStatement_setInt(st, 1, instid);
+	ResultSet_T result = PreparedStatement_executeQuery(st);
+	if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] MONITORING_TASK: SELECT Pre next()" << endl; }
+	if (ResultSet_next(result)) {
+	    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] MONITORING_TASK: SELECT In next()" << endl; }
+	    int tid = ResultSet_getIntByName(result, "tid");
+	    int type = ResultSet_getIntByName(result, "type");
+	    string host = ResultSet_getString(result, 3);
+	    string service = ResultSet_getString(result, 4);
+	    long tsstart = ResultSet_getIntByName(result, "tsstart");
+	    long tsend = ResultSet_getIntByName(result, "tsend");
+	    string usr = ResultSet_getString(result, 7);
+	    string comment = ResultSet_getString(result, 8);
+	    int hstid = ResultSet_getIntByName(result, "hstid");
+	    int srvid = ResultSet_getIntByName(result, "srvid");
+	    long duration = tsend-tsstart;
+	    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] MONITORING_TASK: type = " << type << ", target = " << host << "@" << service << ", tsstart = " << tsstart << ", tsend = " << tsend << endl; }
+	    /* Switch Type */
+	    switch (type) {
+		case 0: /* ReSchedule Service: SCHEDULE_FORCED_SVC_CHECK;<host_name>;<service_description>;<check_time> */
+		    /* Update done to true */
+		    TRY {
+			PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
+			PreparedStatement_setInt(stu, 1, tid);
+			PreparedStatement_execute(stu);
+			/* Prepare for Mailing */
+			PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'5',?,?,'0','0','0',?)");
+			PreparedStatement_setInt(pfm, 1, hstid);
+			PreparedStatement_setInt(pfm, 2, srvid);
+			PreparedStatement_setString(pfm, 3, usr.c_str());
+			PreparedStatement_setString(pfm, 4, comment.c_str());
+			PreparedStatement_setInt(pfm, 5, timestamp);
+			PreparedStatement_execute(pfm);
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING_TASK SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING_TASK SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    /* command to icinga */
+		    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "[%lu] SCHEDULE_FORCED_SVC_CHECK;%s;%s;%lu\n", tsstart, host.c_str(), service.c_str(), tsstart);
+		    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+		    config.WriteToCmdfile(commandfile,temp_buffer);
+		    break;
+		case 1: /* ReSchedule Host: SCHEDULE_FORCED_HOST_CHECK;<host_name>;<check_time> */
+		    /* Update done to true */
+		    TRY {
+			PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
+			PreparedStatement_setInt(stu, 1, tid);
+			PreparedStatement_execute(stu);
+			/* Prepare for Mailing */
+			PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'5',?,?,'0','0','0',?)");
+			PreparedStatement_setInt(pfm, 1, hstid);
+			PreparedStatement_setInt(pfm, 2, srvid);
+			PreparedStatement_setString(pfm, 3, usr.c_str());
+			PreparedStatement_setString(pfm, 4, comment.c_str());
+			PreparedStatement_setInt(pfm, 5, timestamp);
+			PreparedStatement_execute(pfm);
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING_TASK SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING_TASK SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    /* command to icinga */
+		    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "[%lu] SCHEDULE_FORCED_HOST_CHECK;%s;%lu\n", tsstart, host.c_str(), tsstart);
+		    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+		    config.WriteToCmdfile(commandfile,temp_buffer);
+		    break;
+		case 2: /* Define Service Downtime: SCHEDULE_SVC_DOWNTIME;<host_name>;<service_desription><start_time>;<end_time>;<fixed>;<trigger_id>;<duration>;<author>;<comment> */
+		    /* Update done to true */
+		    TRY {
+			PreparedStatement_T ihad = Connection_prepareStatement(con, "INSERT INTO monitoring_downtime(TSSTART,TSEND,USR,COMMENT,HSTID,SRVID,APPID,CREATED) VALUES (?,?,?,?,?,?,'0',?)");
+			PreparedStatement_setInt(ihad, 1, tsstart);
+			PreparedStatement_setInt(ihad, 2, tsend);
+			PreparedStatement_setString(ihad, 3, usr.c_str());
+			PreparedStatement_setString(ihad, 4, comment.c_str());
+			PreparedStatement_setInt(ihad, 5, hstid);
+			PreparedStatement_setInt(ihad, 6, srvid);
+			PreparedStatement_setInt(ihad, 7, timestamp);
+			PreparedStatement_execute(ihad);
+			/* Select ackid */
+			PreparedStatement_T said = Connection_prepareStatement(con, "SELECT dtmid FROM monitoring_downtime WHERE srvid=? AND created=?");
+			PreparedStatement_setInt(said, 1, srvid);
+			PreparedStatement_setInt(said, 2, timestamp);
+			ResultSet_T instanceSAID = PreparedStatement_executeQuery(said);
+			if (ResultSet_next(instanceSAID)) {
+			    PreparedStatement_T msc3 = Connection_prepareStatement(con, "UPDATE monitoring_status SET dtm=true, dtmid=? WHERE srvid=?");
+			    PreparedStatement_setInt(msc3, 1, ResultSet_getIntByName(instanceSAID, "dtmid") );
+			    PreparedStatement_setInt(msc3, 2, srvid );
+			    PreparedStatement_execute(msc3);
+			}
+			/* Abschluss */
+			PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
+			PreparedStatement_setInt(stu, 1, tid);
+			PreparedStatement_execute(stu);
+			/* Prepare for Mailing */
+			PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'2',?,?,'0',?,?,?)");
+			PreparedStatement_setInt(pfm, 1, hstid);
+			PreparedStatement_setInt(pfm, 2, srvid);
+			PreparedStatement_setString(pfm, 3, usr.c_str());
+			PreparedStatement_setString(pfm, 4, comment.c_str());
+			PreparedStatement_setInt(pfm, 5, tsstart);
+			PreparedStatement_setInt(pfm, 6, tsend);
+			PreparedStatement_setInt(pfm, 7, timestamp);
+			PreparedStatement_execute(pfm);
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING_TASK SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING_TASK SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    /* command to icinga */
+		    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "[%lu] SCHEDULE_SVC_DOWNTIME;%s;%s;%lu;%lu;0;0;%lu;%s;%s\n", tsstart, host.c_str(), service.c_str(), tsstart, tsend, duration, usr.c_str(), comment.c_str());
+		    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+		    config.WriteToCmdfile(commandfile,temp_buffer);
+		    break;
+		case 3: /* Define Host incl. Service Downtime: SCHEDULE_HOST_SVC_DOWNTIME;<host_name>;<start_time>;<end_time>;<fixed>;<trigger_id>;<duration>;<author>;<comment> */
+		    /* Update done to true */
+		    TRY {
+			PreparedStatement_T ihad = Connection_prepareStatement(con, "INSERT INTO monitoring_downtime(TSSTART,TSEND,USR,COMMENT,HSTID,SRVID,APPID,CREATED) VALUES (?,?,?,?,?,?,'0',?)");
+			PreparedStatement_setInt(ihad, 1, tsstart);
+			PreparedStatement_setInt(ihad, 2, tsend);
+			PreparedStatement_setString(ihad, 3, usr.c_str());
+			PreparedStatement_setString(ihad, 4, comment.c_str());
+			PreparedStatement_setInt(ihad, 5, hstid);
+			PreparedStatement_setInt(ihad, 6, srvid);
+			PreparedStatement_setInt(ihad, 7, timestamp);
+			PreparedStatement_execute(ihad);
+			/* Select ackid */
+			PreparedStatement_T said = Connection_prepareStatement(con, "SELECT dtmid FROM monitoring_downtime WHERE srvid=? AND created=?");
+			PreparedStatement_setInt(said, 1, srvid);
+			PreparedStatement_setInt(said, 2, timestamp);
+			ResultSet_T instanceSAID = PreparedStatement_executeQuery(said);
+			if (ResultSet_next(instanceSAID)) {
+			    PreparedStatement_T msc3 = Connection_prepareStatement(con, "UPDATE monitoring_status SET dtm=true, dtmid=? WHERE hstid=?");
+			    PreparedStatement_setInt(msc3, 1, ResultSet_getIntByName(instanceSAID, "dtmid") );
+			    PreparedStatement_setInt(msc3, 2, hstid );
+		    	    PreparedStatement_execute(msc3);
+			}
+			/* Abschluss */
+			PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
+			PreparedStatement_setInt(stu, 1, tid);
+			PreparedStatement_execute(stu);
+			/* Prepare for Mailing */
+			PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'2',?,?,'0',?,?,?)");
+			PreparedStatement_setInt(pfm, 1, hstid);
+			PreparedStatement_setInt(pfm, 2, srvid);
+			PreparedStatement_setString(pfm, 3, usr.c_str());
+			PreparedStatement_setString(pfm, 4, comment.c_str());
+			PreparedStatement_setInt(pfm, 5, tsstart);
+			PreparedStatement_setInt(pfm, 6, tsend);
+			PreparedStatement_setInt(pfm, 7, timestamp);
+			PreparedStatement_execute(pfm);
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING_TASK SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING_TASK SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    /* command to icinga */
+		    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "[%lu] SCHEDULE_HOST_SVC_DOWNTIME;%s;%lu;%lu;0;0;%lu;%s;%s\n", tsstart, host.c_str(), tsstart, tsend, duration, usr.c_str(), comment.c_str());
+		    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+		    config.WriteToCmdfile(commandfile,temp_buffer);
+		    break;
+		case 4: /* Acknowledge Service Problem: ACKNOWLEDGE_SVC_PROBLEM;<host_name>;<service_description>;<sticky>;<notify>;<persistent>;<author>;<comment> */
+		    /* Update done to true */
+		    TRY {
+			PreparedStatement_T ihad = Connection_prepareStatement(con, "INSERT INTO monitoring_acknowledge(TS,USR,COMMENT,HSTID,SRVID,APPID,NEWE,CREATED) VALUES (?,?,?,?,?,'0',true,?)");
+			PreparedStatement_setInt(ihad, 1, tsstart);
+			PreparedStatement_setString(ihad, 2, usr.c_str());
+			PreparedStatement_setString(ihad, 3, comment.c_str());
+			PreparedStatement_setInt(ihad, 4, hstid);
+			PreparedStatement_setInt(ihad, 5, srvid);
+			PreparedStatement_setInt(ihad, 6, timestamp);
+			PreparedStatement_execute(ihad);
+			/* Select ackid */
+			PreparedStatement_T said = Connection_prepareStatement(con, "SELECT ackid FROM monitoring_acknowledge WHERE srvid=? AND created=? AND newe=true");
+			PreparedStatement_setInt(said, 1, srvid);
+			PreparedStatement_setInt(said, 2, timestamp);
+			ResultSet_T instanceSAID = PreparedStatement_executeQuery(said);
+			if (ResultSet_next(instanceSAID)) {
+			    PreparedStatement_T msc3 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=true, ackid=? WHERE srvid=?");
+			    PreparedStatement_setInt(msc3, 1, ResultSet_getIntByName(instanceSAID, "ackid") );
+			    PreparedStatement_setInt(msc3, 2, srvid );
+		    	    PreparedStatement_execute(msc3);
+			}
+			/* Abschluss */
+			PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
+			PreparedStatement_setInt(stu, 1, tid);
+			PreparedStatement_execute(stu);
+			/* Prepare for Mailing */
+			PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'1',?,?,'0','0','0',?)");
+			PreparedStatement_setInt(pfm, 1, hstid);
+			PreparedStatement_setInt(pfm, 2, srvid);
+			PreparedStatement_setString(pfm, 3, usr.c_str());
+			PreparedStatement_setString(pfm, 4, comment.c_str());
+			PreparedStatement_setInt(pfm, 5, timestamp);
+			PreparedStatement_execute(pfm);
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING_TASK SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING_TASK SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    /* command to icinga */
+		    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "[%lu] ACKNOWLEDGE_SVC_PROBLEM;%s;%s;2;1;1;%s;%s\n", tsstart, host.c_str(), service.c_str(), usr.c_str(), comment.c_str());
+		    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+		    config.WriteToCmdfile(commandfile,temp_buffer);
+		    break;
+		case 5: /* Acknowledge Host Problem: ACKNOWLEDGE_HOST_PROBLEM;<host_name>;<sticky>;<notify>;<persistent>;<author>;<comment> */
+		    /* Update done to true */
+		    TRY {
+			PreparedStatement_T ihad = Connection_prepareStatement(con, "INSERT INTO monitoring_acknowledge(TS,USR,COMMENT,HSTID,SRVID,APPID,NEWE,CREATED) VALUES (?,?,?,?,?,'0',true,?)");
+			PreparedStatement_setInt(ihad, 1, tsstart);
+			PreparedStatement_setString(ihad, 2, usr.c_str());
+			PreparedStatement_setString(ihad, 3, comment.c_str());
+			PreparedStatement_setInt(ihad, 4, hstid);
+			PreparedStatement_setInt(ihad, 5, srvid);
+			PreparedStatement_setInt(ihad, 6, timestamp);
+			PreparedStatement_execute(ihad);
+			/* Select ackid */
+			PreparedStatement_T said = Connection_prepareStatement(con, "SELECT ackid FROM monitoring_acknowledge WHERE srvid=? AND created=? AND newe=true");
+			PreparedStatement_setInt(said, 1, srvid);
+			PreparedStatement_setInt(said, 2, timestamp);
+			ResultSet_T instanceSAID = PreparedStatement_executeQuery(said);
+			if (ResultSet_next(instanceSAID)) {
+			    PreparedStatement_T msc3 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=true, ackid=? WHERE srvid=?");
+			    PreparedStatement_setInt(msc3, 1, ResultSet_getIntByName(instanceSAID, "ackid") );
+			    PreparedStatement_setInt(msc3, 2, srvid );
+		    	    PreparedStatement_execute(msc3);
+			}
+			/* Abschluss */
+			PreparedStatement_T stu = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
+			PreparedStatement_setInt(stu, 1, tid);
+			PreparedStatement_execute(stu);
+			/* Prepare for Mailing */
+			PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,'1',?,?,'0','0','0',?)");
+			PreparedStatement_setInt(pfm, 1, hstid);
+			PreparedStatement_setInt(pfm, 2, srvid);
+			PreparedStatement_setString(pfm, 3, usr.c_str());
+			PreparedStatement_setString(pfm, 4, comment.c_str());
+			PreparedStatement_setInt(pfm, 5, timestamp);
+			PreparedStatement_execute(pfm);
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING_TASK SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING_TASK SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    /* command to icinga */
+		    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "[%lu] ACKNOWLEDGE_HOST_PROBLEM;%s;2;1;1;%s;%s\n", tsstart, host.c_str(), usr.c_str(), comment.c_str());
+		    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+		    config.WriteToCmdfile(commandfile,temp_buffer);
+		    break;
+		default:
+		    break;
+	    }
+	}
+    } CATCH(SQLException) {
+	snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING_TASK SQLException - %s\n", Exception_frame.message);
+	temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+	write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+	if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING_TASK SQLException - " << Exception_frame.message << endl; }
+    } FINALLY {
+	Connection_close(con);
+    } END_TRY;
+
+    return 0;
+}
+
+/**/
+
 int process_module_args(char *args) {
     int k;
     char *keyval[10];
@@ -2025,3 +2099,4 @@ extern "C" char *escape_buffer(char *buffer) {
 
     return newbuf;
 }
+
