@@ -7,6 +7,9 @@
 #include <zdb.h>
 #include <vector>
 #include <string>
+#include <ctime>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include "../nagios/config.h"
 #include "../nagios/objects.h"
@@ -33,11 +36,14 @@ int process_module_args(char *);
 Configuration config;
 string dbgfile;
 string commandfile;
+string configfile;
 string debug;
 char temp_buffer[8192];
 string idname;
 string identifier;
 string pgurl;
+string indpath;
+string binpath;
 ConnectionPool_T pool;
 URL_T url_t;
 Connection_T con;
@@ -47,5 +53,10 @@ int cc=0;
 int dd=0;
 extern "C" char *escape_buffer(char *);
 int MonitoringTask();
+int UpdateConfiguration();
+int CheckConfigMtime();
+int UpdateConfigFile(int, char *);
+time_t lastts = time(NULL);
+int kk=0;
 
 #endif

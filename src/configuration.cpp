@@ -213,3 +213,38 @@ int Configuration::WriteToCmdfile(const string& file,char *cmd) {
     cmdfile.close();
     return 0;
 }
+
+string Configuration::OpenFile(const string& file) {
+    ifstream inFile;
+    inFile.open(file.c_str());
+    stringstream strStream;
+    strStream << inFile.rdbuf();
+    string str = strStream.str();
+    return str;
+}
+
+string Configuration::ReplaceString(string subject, const string& search, const string& replace) {
+    size_t pos = 0;
+    while ((pos = subject.find(search, pos)) != std::string::npos) {
+	subject.replace(pos, search.length(), replace);
+	pos += replace.length();
+    }
+    return subject;
+}
+
+string Configuration::GetStdoutFromCommand(string cmd) {
+    string data;
+    FILE * stream;
+    const int max_buffer = 256;
+    char buffer[max_buffer];
+    cmd.append(" 2>&1");
+
+    stream = popen(cmd.c_str(), "r");
+    if (stream) {
+	while (!feof(stream)) {
+	    if (fgets(buffer, max_buffer, stream) != NULL) { data.append(buffer); }
+	}
+    }
+    pclose(stream);
+    return data;
+}

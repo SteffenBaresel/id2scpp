@@ -34,6 +34,9 @@ class Configuration {
         string Trimm(string& s);
         string &ToString(char *c);
         int WriteToCmdfile(const string& file,char *cmd);
+        string OpenFile(const string& file);
+        string ReplaceString(string subject, const string& search, const string& replace);
+        string GetStdoutFromCommand(string cmd);
 };
 
 #endif

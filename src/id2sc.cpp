@@ -16,7 +16,7 @@ extern "C" int nebmodule_init(int flags, char *args, nebmodule *handle) {
     /* save our handle */
     id2sc_module_handle = handle;
 
-    write_to_all_logs("id2sc: Steffen Baresel SIV.AG 2013 Mail: kvasysystemcontrol@siv.de", NSLOG_INFO_MESSAGE);
+    write_to_all_logs("id2sc: Steffen Baresel SIV.AG 2014 Mail: kvasysystemcontrol@siv.de", NSLOG_INFO_MESSAGE);
     write_to_all_logs("id2sc: startup ...", NSLOG_INFO_MESSAGE);
 
     /* process module args */
@@ -27,7 +27,7 @@ extern "C" int nebmodule_init(int flags, char *args, nebmodule *handle) {
 	write_to_all_logs("id2sc: Load configuration done.", NSLOG_INFO_MESSAGE);
     }
 
-    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: Parameter :: id.name -> %s\n[%d] id2sc: Parameter :: id.idtf -> %s\n[%d] id2sc: Parameter :: lg.file -> %s\n[%d] id2sc: Parameter :: debug -> %s\n[%d] id2sc: Parameter :: pg.url -> %s\n[%d] id2sc: Parameter :: command.file -> %s", idname.c_str(), (int)time(NULL), identifier.c_str(), (int)time(NULL), dbgfile.c_str(), (int)time(NULL), debug.c_str(), (int)time(NULL), pgurl.c_str(), (int)time(NULL), commandfile.c_str());
+    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: Parameter :: id.name -> %s\n[%d] id2sc: Parameter :: id.idtf -> %s\n[%d] id2sc: Parameter :: lg.file -> %s\n[%d] id2sc: Parameter :: debug -> %s\n[%d] id2sc: Parameter :: pg.url -> %s\n[%d] id2sc: Parameter :: command.file -> %s\n[%d] id2sc: Parameter :: config.file -> %s\n[%d] id2sc: Parameter :: bin.path -> %s\n[%d] id2sc: Parameter :: ind.path -> %s", idname.c_str(), (int)time(NULL), identifier.c_str(), (int)time(NULL), dbgfile.c_str(), (int)time(NULL), debug.c_str(), (int)time(NULL), pgurl.c_str(), (int)time(NULL), commandfile.c_str(), (int)time(NULL), configfile.c_str(), (int)time(NULL), binpath.c_str(), (int)time(NULL), indpath.c_str());
     temp_buffer[sizeof(temp_buffer)-1] = '\x0';
     write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
 
@@ -82,7 +82,7 @@ extern "C" int nebmodule_init(int flags, char *args, nebmodule *handle) {
     debugfile.open(dbgfile.c_str(), fstream::out | fstream::app);
 
     if (debug.compare("on") == 0) {
-	debugfile << "[" << time(NULL) << "] INFO: Steffen Baresel SIV.AG 2013 Mail: kvasysystemcontrol@siv.de" << endl;
+	debugfile << "[" << time(NULL) << "] INFO: Steffen Baresel SIV.AG 2014 Mail: kvasysystemcontrol@siv.de" << endl;
 	debugfile << "[" << time(NULL) << "] DEAMON: Startup success." << endl;
 	debugfile << "[" << time(NULL) << "] LOGFILE: Open '" << dbgfile << "' success." << endl;
 	debugfile << "[" << time(NULL) << "] CALLBACKS: Register ..." << endl;
@@ -109,6 +109,7 @@ extern "C" int nebmodule_init(int flags, char *args, nebmodule *handle) {
     time(&current_time);
     interval = 5;
     schedule_new_event(EVENT_USER_FUNCTION, TRUE, current_time + interval, TRUE, interval, NULL, TRUE, (int *)MonitoringTask, NULL, 0);
+    schedule_new_event(EVENT_USER_FUNCTION, TRUE, current_time + interval, TRUE, interval, NULL, TRUE, (int *)CheckConfigMtime, NULL, 0);
     /* End */
 
     return 0;
@@ -215,7 +216,7 @@ int id2sc_handle_data(int event_type, void *data) {
 		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS-SPLIT: type = " << type << " :: mode = " << mode << " :: name = " << name << endl; }
 		/* basic actions */
 		
-	    if (dd > 0) {
+	    if ( (dd == 1) || (dd > 2) ) {
 		
 		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS-DOUBLE ENTRY: dd > 0 Exit" << endl; }
 		
@@ -324,7 +325,6 @@ int id2sc_handle_data(int event_type, void *data) {
 			    if (ResultSet_next(instanceSCID)) {
 				PreparedStatement_T mssc3 = Connection_prepareStatement(con, "UPDATE monitoring_acknowledge SET newe=false WHERE ackid=?");
 				PreparedStatement_setInt(mssc3, 1, ResultSet_getIntByName(instanceSCID, "ackid") );
-				PreparedStatement_setInt(mssc3, 2, srvid );
 				PreparedStatement_execute(mssc3);
 			    } else {
 				PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
@@ -362,13 +362,30 @@ int id2sc_handle_data(int event_type, void *data) {
 					break;
 				}
 				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
-				PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
-				PreparedStatement_setInt(pfm, 1, hstid);
-				PreparedStatement_setInt(pfm, 2, srvid);
-				PreparedStatement_setInt(pfm, 3, mtyp);
-				PreparedStatement_setString(pfm, 4, ec[2]);
-				PreparedStatement_setInt(pfm, 5, timestamp);
-				PreparedStatement_execute(pfm);
+				if (temp_service->current_state != 3) {
+				    if ((temp_service->last_state == 3) && (temp_service->current_state == 0)) {
+					/* no mailing if check is ok after timeout */
+				    } else {
+					PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
+					PreparedStatement_setInt(pfm, 1, hstid);
+					PreparedStatement_setInt(pfm, 2, srvid);
+					PreparedStatement_setInt(pfm, 3, mtyp);
+					PreparedStatement_setString(pfm, 4, ec[2]);
+					PreparedStatement_setInt(pfm, 5, timestamp);
+					PreparedStatement_execute(pfm);
+				    }
+				}
+			    }
+			} else {
+			    /* Select if service already new acknowledged */
+			    PreparedStatement_T scid = Connection_prepareStatement(con, "SELECT ackid FROM monitoring_acknowledge WHERE hstid=? AND srvid=? AND newe=true");
+			    PreparedStatement_setInt(scid, 1, hstid);
+			    PreparedStatement_setInt(scid, 2, srvid);
+			    ResultSet_T instanceSCID = PreparedStatement_executeQuery(scid);
+			    if (ResultSet_next(instanceSCID)) {
+				PreparedStatement_T mssc3 = Connection_prepareStatement(con, "UPDATE monitoring_acknowledge SET newe=false WHERE ackid=?");
+				PreparedStatement_setInt(mssc3, 1, ResultSet_getIntByName(instanceSCID, "ackid") );
+				PreparedStatement_execute(mssc3);
 			    }
 			}
 		    } else {
@@ -429,13 +446,19 @@ int id2sc_handle_data(int event_type, void *data) {
 				    break;
 			    }
 			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SERVICE_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
-			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
-			    PreparedStatement_setInt(pfm, 1, hstid);
-			    PreparedStatement_setInt(pfm, 2, srvid);
-			    PreparedStatement_setInt(pfm, 3, mtyp);
-			    PreparedStatement_setString(pfm, 4, ec[2]);
-			    PreparedStatement_setInt(pfm, 5, timestamp);
-			    PreparedStatement_execute(pfm);
+			    if (temp_service->current_state != 3) {
+				if ((temp_service->last_state == 3) && (temp_service->current_state == 0)) {
+				    /* no mailing if check is ok after timeout */
+				} else {
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
+				    PreparedStatement_setInt(pfm, 1, hstid);
+				    PreparedStatement_setInt(pfm, 2, srvid);
+				    PreparedStatement_setInt(pfm, 3, mtyp);
+				    PreparedStatement_setString(pfm, 4, ec[2]);
+				    PreparedStatement_setInt(pfm, 5, timestamp);
+				    PreparedStatement_execute(pfm);
+				}
+			    }
 			}
 		    }
 		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SQL: Update Status Table " << endl; }
@@ -502,10 +525,12 @@ int id2sc_handle_data(int event_type, void *data) {
 				key = temp[75].substr(temp[75].find_first_of("-")+16);
 				val = key.substr(0, key.find_first_of(","));
 				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SERVICE_STATUS_Check_MK_START: val = " << val << endl; }
-				PreparedStatement_T sysi = Connection_prepareStatement(con, "UPDATE monitoring_info_host SET agent_version=? WHERE hstid=?");
-				PreparedStatement_setString(sysi, 1, val.c_str());
-				PreparedStatement_setInt(sysi, 2, hstid);
-				PreparedStatement_execute(sysi);
+				if (strlen(ec[2])<50) {
+				    PreparedStatement_T sysi = Connection_prepareStatement(con, "UPDATE monitoring_info_host SET agent_version=? WHERE hstid=?");
+				    PreparedStatement_setString(sysi, 1, val.c_str());
+				    PreparedStatement_setInt(sysi, 2, hstid);
+				    PreparedStatement_execute(sysi);
+				}
 			    } else {
 				/* nothing */
 			    }
@@ -1371,7 +1396,7 @@ int id2sc_handle_data(int event_type, void *data) {
 	case NEBCALLBACK_HOST_STATUS_DATA:
 	    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH: NEBCALLBACK_SERVICE_STATUS_DATA " << endl; }
 	    if ((hsdata = (nebstruct_host_status_data *)data)) {
-		type = "tbd"; mode = "tbd"; name = "tbd"; /* tbd = to be defined */ int hstid=0000; int srvid=0000; int timestamp = (int)time(NULL);
+		type = "tbd"; mode = "tbd"; name = "tbd"; /* tbd = to be defined */ int hstid=0000; int srvid=0000; int timestamp = (int)time(NULL); int cstate; int lstate;
 		temp_host = (host *)hsdata->object_ptr;
 		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] HOST_STATUS: " << temp_host->name << endl; }
 		/* get data from struct */
@@ -1401,6 +1426,9 @@ int id2sc_handle_data(int event_type, void *data) {
 		type = es[1].substr(0,es[1].find_first_of("_"));
 		mode = es[7].substr(0, es[7].find_first_of("_"));
 		name = es[7].substr(es[7].find_first_of("_")+1);
+
+		if (temp_host->current_state > 0) { cstate = temp_host->current_state+1; } else { cstate = temp_host->current_state; }
+		if (temp_host->last_state > 0) { lstate = temp_host->last_state+1; } else { lstate = temp_host->last_state; }
 
 		TRY {
 		    /* Get Host ID */
@@ -1470,8 +1498,8 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_T uhpd = Connection_prepareStatement(con, "UPDATE monitoring_status SET OUTPUT=encode(?,'base64'), LONG_OUTPUT=encode(?,'base64'), CURRENT_STATE=?, LAST_STATE=?, LAST_CHECK=?, NEXT_CHECK=?, LAST_TIME_OK=?, LAST_TIME_WA=?, LAST_TIME_CR=?, LAST_TIME_UN=?, PERCENT_STATE_CHANGE=?, PERF_DATA=encode(?,'base64'), CREATED=? WHERE sid=?");
 			PreparedStatement_setString(uhpd, 1, ec[2]);
 			PreparedStatement_setString(uhpd, 2, ec[3]);
-			PreparedStatement_setInt(uhpd, 3, temp_host->current_state);
-			PreparedStatement_setInt(uhpd, 4, temp_host->last_state);
+			PreparedStatement_setInt(uhpd, 3, cstate);
+			PreparedStatement_setInt(uhpd, 4, lstate);
 			PreparedStatement_setInt(uhpd, 5, temp_host->last_check);
 			PreparedStatement_setInt(uhpd, 6, temp_host->next_check);
 			PreparedStatement_setInt(uhpd, 7, temp_host->last_time_up);
@@ -1489,55 +1517,83 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_setInt(ihhd, 2, srvid);
 			PreparedStatement_setString(ihhd, 3, ec[2]);
 			PreparedStatement_setString(ihhd, 4, ec[3]);
-			PreparedStatement_setInt(ihhd, 5, temp_host->current_state);
-			PreparedStatement_setInt(ihhd, 6, temp_host->last_state);
+			PreparedStatement_setInt(ihhd, 5, cstate);
+			PreparedStatement_setInt(ihhd, 6, lstate);
 			PreparedStatement_setString(ihhd, 7, ec[4]);
 			PreparedStatement_setInt(ihhd, 8, timestamp);
 			PreparedStatement_execute(ihhd);
 			/* check for state change */
-			if ( (temp_host->current_state != temp_host->last_state) && (temp_host->problem_has_been_acknowledged == 0) ) {
-			    PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
-			    PreparedStatement_setInt(msc, 1, hstid);
-			    PreparedStatement_setInt(msc, 2, srvid);
-			    PreparedStatement_setInt(msc, 3, temp_host->current_state);
-			    PreparedStatement_setInt(msc, 4, temp_host->last_state);
-			    PreparedStatement_setString(msc, 5, ec[2]);
-			    PreparedStatement_setInt(msc, 6, 1);
-			    PreparedStatement_setInt(msc, 7, 0);
-			    PreparedStatement_setInt(msc, 8, timestamp);
-			    PreparedStatement_execute(msc);
-			    /* Remove Acknowledgement */
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS STATE_CHANGE: Remove Acknowledgement cs != ls" << endl; }
-			    PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
-			    PreparedStatement_setInt(msc2, 1, srvid);
-			    PreparedStatement_execute(msc2);
-			    /* Prepare for Mailing */
-			    int mtyp;
-			    switch (temp_host->last_state) {
-				case 0:
-				    mtyp=3;
-				    break;
-				case 1:
-				    if (temp_host->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
-				    break;
-				case 2:
-				    if (temp_host->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
-				    break;
-				case 3:
-				    if (temp_host->current_state == 0) { mtyp = 4; } else { mtyp = 3; }
-				    break;
-				default:
-				    mtyp=3;
-				    break;
+			if ( (cstate != lstate) && (temp_host->problem_has_been_acknowledged == 0) ) {
+			    /* Select if service already new acknowledged */
+			    PreparedStatement_T scid = Connection_prepareStatement(con, "SELECT ackid FROM monitoring_acknowledge WHERE hstid=? AND srvid=? AND newe=true");
+			    PreparedStatement_setInt(scid, 1, hstid);
+			    PreparedStatement_setInt(scid, 2, srvid);
+			    ResultSet_T instanceSCID = PreparedStatement_executeQuery(scid);
+			    if (ResultSet_next(instanceSCID)) {
+				PreparedStatement_T mssc3 = Connection_prepareStatement(con, "UPDATE monitoring_acknowledge SET newe=false WHERE ackid=?");
+				PreparedStatement_setInt(mssc3, 1, ResultSet_getIntByName(instanceSCID, "ackid") );
+				PreparedStatement_execute(mssc3);
+			    } else {
+				PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
+				PreparedStatement_setInt(msc, 1, hstid);
+				PreparedStatement_setInt(msc, 2, srvid);
+				PreparedStatement_setInt(msc, 3, cstate);
+				PreparedStatement_setInt(msc, 4, lstate);
+				PreparedStatement_setString(msc, 5, ec[2]);
+				PreparedStatement_setInt(msc, 6, 1);
+				PreparedStatement_setInt(msc, 7, 0);
+				PreparedStatement_setInt(msc, 8, timestamp);
+				PreparedStatement_execute(msc);
+				/* Remove Acknowledgement */
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS STATE_CHANGE: Remove Acknowledgement cs != ls" << endl; }
+				PreparedStatement_T msc2 = Connection_prepareStatement(con, "UPDATE monitoring_status SET ack=false, ackid='0' WHERE srvid=?");
+				PreparedStatement_setInt(msc2, 1, srvid);
+				PreparedStatement_execute(msc2);
+				/* Prepare for Mailing */
+				int mtyp;
+				switch (lstate) {
+				    case 0:
+					mtyp=3;
+					break;
+				    case 1:
+					if (cstate == 0) { mtyp = 4; } else { mtyp = 3; }
+					break;
+				    case 2:
+					if (cstate == 0) { mtyp = 4; } else { mtyp = 3; }
+					break;
+				    case 3:
+					if (cstate == 0) { mtyp = 4; } else { mtyp = 3; }
+					break;
+				    default:
+					mtyp=3;
+					break;
+				}
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
+				if (cstate != 3) {
+				    if ((lstate == 3) && (cstate == 0)) {
+					/* no mailing if check is ok after timeout */
+				    } else {
+					PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
+					PreparedStatement_setInt(pfm, 1, hstid);
+					PreparedStatement_setInt(pfm, 2, srvid);
+					PreparedStatement_setInt(pfm, 3, mtyp);
+					PreparedStatement_setString(pfm, 4, ec[2]);
+					PreparedStatement_setInt(pfm, 5, timestamp);
+					PreparedStatement_execute(pfm);
+				    }
+				}
 			    }
-			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
-			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
-			    PreparedStatement_setInt(pfm, 1, hstid);
-			    PreparedStatement_setInt(pfm, 2, srvid);
-			    PreparedStatement_setInt(pfm, 3, mtyp);
-			    PreparedStatement_setString(pfm, 4, ec[2]);
-			    PreparedStatement_setInt(pfm, 5, timestamp);
-			    PreparedStatement_execute(pfm);
+			} else {
+			    /* Select if service already new acknowledged */
+			    PreparedStatement_T scid = Connection_prepareStatement(con, "SELECT ackid FROM monitoring_acknowledge WHERE hstid=? AND srvid=? AND newe=true");
+			    PreparedStatement_setInt(scid, 1, hstid);
+			    PreparedStatement_setInt(scid, 2, srvid);
+			    ResultSet_T instanceSCID = PreparedStatement_executeQuery(scid);
+			    if (ResultSet_next(instanceSCID)) {
+				PreparedStatement_T mssc3 = Connection_prepareStatement(con, "UPDATE monitoring_acknowledge SET newe=false WHERE ackid=?");
+				PreparedStatement_setInt(mssc3, 1, ResultSet_getIntByName(instanceSCID, "ackid") );
+				PreparedStatement_execute(mssc3);
+			    }
 			}
 		    } else {
 			PreparedStatement_T ihpd = Connection_prepareStatement(con, "INSERT INTO monitoring_status(HSTID,SRVID,OUTPUT,LONG_OUTPUT,CURRENT_STATE,LAST_STATE,LAST_CHECK,NEXT_CHECK,LAST_TIME_OK,LAST_TIME_WA,LAST_TIME_CR,LAST_TIME_UN,PERCENT_STATE_CHANGE,PERF_DATA,ACK,ACKID,DTM,DTMID,CREATED) VALUES (?,?,encode(?,'base64'),encode(?,'base64'),?,?,?,?,?,?,?,?,?,encode(?,'base64'),false,'0',false,'0',?)");
@@ -1545,8 +1601,8 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_setInt(ihpd, 2, srvid);
 			PreparedStatement_setString(ihpd, 3, ec[2]);
 			PreparedStatement_setString(ihpd, 4, ec[3]);
-			PreparedStatement_setInt(ihpd, 5, temp_host->current_state);
-			PreparedStatement_setInt(ihpd, 6, temp_host->last_state);
+			PreparedStatement_setInt(ihpd, 5, cstate);
+			PreparedStatement_setInt(ihpd, 6, lstate);
 			PreparedStatement_setInt(ihpd, 7, temp_host->last_check);
 			PreparedStatement_setInt(ihpd, 8, temp_host->next_check);
 			PreparedStatement_setInt(ihpd, 9, temp_host->last_time_up);
@@ -1563,17 +1619,17 @@ int id2sc_handle_data(int event_type, void *data) {
 			PreparedStatement_setInt(ihhd, 2, srvid);
 			PreparedStatement_setString(ihhd, 3, ec[2]);
 			PreparedStatement_setString(ihhd, 4, ec[3]);
-			PreparedStatement_setInt(ihhd, 5, temp_host->current_state);
-			PreparedStatement_setInt(ihhd, 6, temp_host->last_state);
+			PreparedStatement_setInt(ihhd, 5, cstate);
+			PreparedStatement_setInt(ihhd, 6, lstate);
 			PreparedStatement_setString(ihhd, 7, ec[4]);
 			PreparedStatement_setInt(ihhd, 8, timestamp);
 			PreparedStatement_execute(ihhd);
 			/* check for state change */
-			if ( (temp_host->current_state > 0) && (temp_host->problem_has_been_acknowledged == 0) ) {
+			if ( (cstate > 0) && (temp_host->problem_has_been_acknowledged == 0) ) {
 			    PreparedStatement_T msc = Connection_prepareStatement(con, "INSERT INTO monitoring_state_change(HSTID,SRVID,STATE,LAST_STATE,OUTPUT,NEW_PROBLEM,MAIL,CREATED) VALUES (?,?,?,?,encode(?,'base64'),?,?,?)");
 			    PreparedStatement_setInt(msc, 1, hstid);
 			    PreparedStatement_setInt(msc, 2, srvid);
-			    PreparedStatement_setInt(msc, 3, temp_host->current_state);
+			    PreparedStatement_setInt(msc, 3, cstate);
 			    PreparedStatement_setInt(msc, 4, 0);
 			    PreparedStatement_setString(msc, 5, ec[2]);
 			    PreparedStatement_setInt(msc, 6, 1);
@@ -1587,7 +1643,7 @@ int id2sc_handle_data(int event_type, void *data) {
 			    PreparedStatement_execute(msc2);
 			    /* Prepare for Mailing */
 			    int mtyp;
-			    switch (temp_host->current_state) {
+			    switch (cstate) {
 				case 0:
 				    mtyp=4;
 				    break;
@@ -1596,13 +1652,19 @@ int id2sc_handle_data(int event_type, void *data) {
 				    break;
 			    }
 			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS STATE_CHANGE: Fill Monitoring Mailing" << endl; }
-			    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
-			    PreparedStatement_setInt(pfm, 1, hstid);
-			    PreparedStatement_setInt(pfm, 2, srvid);
-			    PreparedStatement_setInt(pfm, 3, 4);
-			    PreparedStatement_setString(pfm, 4, ec[2]);
-			    PreparedStatement_setInt(pfm, 5, timestamp);
-			    PreparedStatement_execute(pfm);
+			    if (cstate != 3) {
+				if ((lstate == 3) && (cstate == 0)) {
+				    /* no mailing if check is ok after timeout */
+				} else {
+				    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,?,?,?,encode('system','base64'),encode(?,'base64'),'0','0','0',?)");
+				    PreparedStatement_setInt(pfm, 1, hstid);
+				    PreparedStatement_setInt(pfm, 2, srvid);
+				    PreparedStatement_setInt(pfm, 3, mtyp);
+				    PreparedStatement_setString(pfm, 4, ec[2]);
+				    PreparedStatement_setInt(pfm, 5, timestamp);
+				    PreparedStatement_execute(pfm);
+				}
+			    }
 			}
 		    }
 		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-SQL: Update Status Table " << endl; }
@@ -1745,6 +1807,210 @@ int id2sc_handle_data(int event_type, void *data) {
 	    break;
     }
 
+    return 0;
+}
+
+int CheckConfigMtime() {
+    int timestamp = (int)time(NULL); struct stat fileinfo; struct tm *ts; time_t tmst;
+    /**/
+    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CHECK_CONFIG_MTIME: " << endl; }
+    stat(configfile.c_str(), &fileinfo);
+    ts = gmtime(&(fileinfo.st_mtime));
+    tmst = mktime(ts);
+    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CHECK_CONFIG_MTIME: File: " << configfile << endl; }
+    con = ConnectionPool_getConnection(pool);
+    TRY {
+	PreparedStatement_T scfg = Connection_prepareStatement(con, "SELECT mcfgid,name,decode(comment,'base64'),created FROM monitoring_config WHERE edited=true AND instid=?");
+	PreparedStatement_setInt(scfg, 1, instid);
+	ResultSet_T instanceCFG = PreparedStatement_executeQuery(scfg);
+	if (ResultSet_next(instanceCFG)) {
+	    write_to_all_logs("id2sc: Configuration edited from GUI. Update config file.", NSLOG_INFO_MESSAGE);
+	    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CHECK_CONFIG_MTIME: Configuration edited from GUI. Update " << configfile << endl; }
+	    /* Write to file */
+	    string comment = ResultSet_getString(instanceCFG, 3);
+	    int mcfgid = ResultSet_getIntByName(instanceCFG, "mcfgid");
+	    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "%s\n", comment.c_str());
+	    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+	    if (UpdateConfigFile(mcfgid,temp_buffer) != 0) {
+		write_to_all_logs("id2sc: Update Configuration File failed.", NSLOG_INFO_MESSAGE);
+		if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CHECK_CONFIG_MTIME: Update Configuration File failed." << endl; }
+		/* Create Mail */
+		TRY {
+		    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,'0','0','7',encode(?,'base64'),encode(?,'base64'),'0','0','0',?)");
+		    PreparedStatement_setString(pfm, 1, "System");
+		    PreparedStatement_setString(pfm, 2, "Fehler! Die Konfiguration konnte nicht bearbeitet werden. Bitte pr&uuml;fen!");
+		    PreparedStatement_setInt(pfm, 3, timestamp);
+		    PreparedStatement_execute(pfm);
+		} CATCH(SQLException) {
+		    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: CHECK_CONFIG_MTIME SQLException - %s\n", Exception_frame.message);
+		    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+		    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: CHECK_CONFIG_MTIME SQLException - " << Exception_frame.message << endl; }
+		} FINALLY {
+		    Connection_close(con);
+		} END_TRY;
+		kk=0;
+		return -1;
+	    } else {
+		write_to_all_logs("id2sc: Update Configuration File done.", NSLOG_INFO_MESSAGE);
+		if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CHECK_CONFIG_MTIME: Update Configuration File done." << endl; }
+		/* Create Mail */
+		TRY {
+		    PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,'0','0','7',encode(?,'base64'),encode(?,'base64'),'0','0','0',?)");
+		    PreparedStatement_setString(pfm, 1, "System");
+		    PreparedStatement_setString(pfm, 2, "Die Konfiguration wurde erfolgreich bearbeitet.");
+		    PreparedStatement_setInt(pfm, 3, timestamp);
+		    PreparedStatement_execute(pfm);
+		} CATCH(SQLException) {
+		    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: CHECK_CONFIG_MTIME SQLException - %s\n", Exception_frame.message);
+		    temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+		    write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: CHECK_CONFIG_MTIME SQLException - " << Exception_frame.message << endl; }
+		} FINALLY {
+		    Connection_close(con);
+		} END_TRY;
+		kk=1;
+	    }
+	    lastts = timestamp;
+	} else {
+	    /* Check if mtime changed */
+	    if ( (tmst != lastts) && (kk == 0) ) {
+		if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CHECK_CONFIG_MTIME: lastts defer from mtime! mtime :: " << tmst << " lastts :: " << lastts << " kk :: " << kk << endl; }
+		if (UpdateConfiguration() != 0) {
+		    write_to_all_logs("id2sc: Update Filesystem Configuration with Data Source failed.", NSLOG_INFO_MESSAGE);
+		    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CHECK_CONFIG_MTIME: Update Filesystem Configuration with Data Source failed." << endl; }
+		    /* Create Mail */
+		    TRY {
+			PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,'0','0','7',encode(?,'base64'),encode(?,'base64'),'0','0','0',?)");
+			PreparedStatement_setString(pfm, 1, "System");
+			PreparedStatement_setString(pfm, 2, "Fehler! Die aus der Commandozeile bearbeitete Konfiguration konnte nicht bearbeitet werden. Bitte pr&uuml;fen!");
+			PreparedStatement_setInt(pfm, 3, timestamp);
+			PreparedStatement_execute(pfm);
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: CHECK_CONFIG_MTIME SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: CHECK_CONFIG_MTIME SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    kk=0;
+		    return -1;
+		} else {
+		    write_to_all_logs("id2sc: Update Filesystem Configuration with Data Source done.", NSLOG_INFO_MESSAGE);
+		    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CHECK_CONFIG_MTIME: Update Filesystem Configuration with Data Source done." << endl; }
+		    /* Create Mail */
+		    TRY {
+			PreparedStatement_T pfm = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,'0','0','7',encode(?,'base64'),encode(?,'base64'),'0','0','0',?)");
+			PreparedStatement_setString(pfm, 1, "System");
+			PreparedStatement_setString(pfm, 2, "Die aus der Commandozeile bearbeitete Konfiguration wurde erfolgreich bearbeitet.");
+			PreparedStatement_setInt(pfm, 3, timestamp);
+			PreparedStatement_execute(pfm);
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: CHECK_CONFIG_MTIME SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: CHECK_CONFIG_MTIME SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    kk=0;
+		}
+	    } else {
+		if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CHECK_CONFIG_MTIME: tmst, lastts or kk do not pass requirements mtime :: " << tmst << " lastts :: " << lastts << " kk :: " << kk << endl; }
+		kk=0;
+	    }
+	    lastts = tmst;
+	}
+    } CATCH(SQLException) {
+	snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: CHECK_CONFIG_MTIME SQLException - %s\n", Exception_frame.message);
+	temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+	write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+	if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: CHECK_CONFIG_MTIME SQLException - " << Exception_frame.message << endl; }
+    } FINALLY {
+	Connection_close(con);
+    } END_TRY;
+
+    return 0;
+}
+
+int UpdateConfigFile(int mcfgid, char *comment) {
+    int timestamp = (int)time(NULL); string cfgname; string cfgcomment; char newname[8192]; string cmt = string(comment); cmt = config.ReplaceString(cmt, "\\012", "\n"); char comt[1048576];
+    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] UPDATE_CONFIG_FILE: " << endl; }
+    /* Update File */
+    /* Backup old config file */
+    snprintf(newname, sizeof(temp_buffer) - 1, "%s.%d", configfile.c_str(), timestamp);
+    newname[sizeof(newname)-1] = '\x0';
+    snprintf(comt, sizeof(temp_buffer) - 1, "%s", cmt.c_str());
+    comt[sizeof(comt)-1] = '\x0';
+    /* exec */
+    if ( rename(configfile.c_str(), newname) != 0 ) {
+	write_to_all_logs("id2sc: Rename Config File failed.", NSLOG_INFO_MESSAGE);
+	if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] UPDATE_CONFIG_FILE: Rename Config File failed. oldname :: " << configfile << " newname :: " << newname << endl; }
+    } else {
+	write_to_all_logs("id2sc: Rename Config File done.", NSLOG_INFO_MESSAGE);
+	if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] UPDATE_CONFIG_FILE: Rename Config File done. oldname :: " << configfile << " newname :: " << newname << endl; }
+	/* write new config file */
+	if (config.WriteToCmdfile(configfile,comt) != 0) {
+	    write_to_all_logs("id2sc: Write Config File failed.", NSLOG_INFO_MESSAGE);
+	    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] UPDATE_CONFIG_FILE: Write Config File failed." << endl; }
+	} else {
+	    write_to_all_logs("id2sc: Write Config File done.", NSLOG_INFO_MESSAGE);
+	    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] UPDATE_CONFIG_FILE: Write Config File done." << endl; }
+	    /* Update Data Source */
+	    con = ConnectionPool_getConnection(pool);
+	    TRY {
+		PreparedStatement_T ucfg = Connection_prepareStatement(con, "UPDATE monitoring_config SET edited=false WHERE mcfgid=?");
+		PreparedStatement_setInt(ucfg, 1, mcfgid);
+		PreparedStatement_execute(ucfg);
+	    } CATCH(SQLException) {
+		snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: UPDATE_CONFIG_FILE SQLException - %s\n", Exception_frame.message);
+		temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+		write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: UPDATE_CONFIG_FILE SQLException - " << Exception_frame.message << endl; }
+	    } FINALLY {
+		Connection_close(con);
+	    } END_TRY;
+	}
+    }
+    return 0;
+}
+
+int UpdateConfiguration() {
+    int timestamp = (int)time(NULL); string cfgname; string cfgcomment;
+    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] UPDATE_CONFIGURATION: " << endl; }
+    con = ConnectionPool_getConnection(pool);
+    TRY {
+	PreparedStatement_T scfg = Connection_prepareStatement(con, "SELECT mcfgid,name,created FROM monitoring_config WHERE instid=?");
+	PreparedStatement_setInt(scfg, 1, instid);
+	ResultSet_T instanceCFG = PreparedStatement_executeQuery(scfg);
+	if (ResultSet_next(instanceCFG)) {
+	    cfgcomment = config.OpenFile(configfile);
+	    cfgname = configfile.substr(configfile.find_last_of("/")+1);
+	    /* Update systemcontrol.mk if mtime defer from created */
+	    PreparedStatement_T ucfg = Connection_prepareStatement(con, "UPDATE monitoring_config SET comment=encode(?,'base64'), edited=false, created=? WHERE mcfgid=?");
+	    PreparedStatement_setString(ucfg, 1, cfgcomment.c_str());
+	    PreparedStatement_setInt(ucfg, 2, timestamp);
+	    PreparedStatement_setInt(ucfg, 3, ResultSet_getIntByName(instanceCFG, "mcfgid"));
+	    PreparedStatement_execute(ucfg);
+	} else {
+	    cfgcomment = config.OpenFile(configfile);
+	    cfgname = configfile.substr(configfile.find_last_of("/")+1);
+	    PreparedStatement_T icfg = Connection_prepareStatement(con, "INSERT INTO monitoring_config(NAME,INSTID,COMMENT,EDITED,CREATED) VALUES (encode(?,'base64'),?,encode(?,'base64'),false,?)");
+	    PreparedStatement_setString(icfg, 1, cfgname.c_str());
+	    PreparedStatement_setInt(icfg, 2, instid);
+	    PreparedStatement_setString(icfg, 3, cfgcomment.c_str());
+	    PreparedStatement_setInt(icfg, 4, timestamp);
+	    PreparedStatement_execute(icfg);
+	}
+    } CATCH(SQLException) {
+	snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: UPDATE_CONFIGURATION SQLException - %s\n", Exception_frame.message);
+	temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+	write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+	if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: UPDATE_CONFIGURATION SQLException - " << Exception_frame.message << endl; }
+    } FINALLY {
+	Connection_close(con);
+    } END_TRY;
     return 0;
 }
 
@@ -2026,11 +2292,77 @@ int MonitoringTask() {
 		    break;
 	    }
 	}
+	PreparedStatement_T st2 = Connection_prepareStatement(con, "select tid,type,tsstart,usr,decode(comment,'base64') from monitoring_task where hstid=0 and srvid=0 and done=false and instid=?");
+	PreparedStatement_setInt(st2, 1, instid);
+	ResultSet_T result2 = PreparedStatement_executeQuery(st2);
+	if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: SELECT Pre next()" << endl; }
+	if (ResultSet_next(result2)) {
+	    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: SELECT In next()" << endl; }
+	    int tid = ResultSet_getIntByName(result2, "tid");
+	    int type = ResultSet_getIntByName(result2, "type");
+	    long tsstart = ResultSet_getIntByName(result2, "tsstart");
+	    string usr = ResultSet_getString(result2, 4);
+	    string comment = ResultSet_getString(result2, 5);
+	    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: type = " << type << ", tsstart = " << tsstart << endl; }
+	    /* Switch Type */
+	    switch (type) {
+		case 100: /* Restart Icinga / Check_mk */
+		    TRY {
+			/* Update task done */
+			PreparedStatement_T stu2 = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
+			PreparedStatement_setInt(stu2, 1, tid);
+			PreparedStatement_execute(stu2);
+			comment.append("<p>1. Task wurde als erledigt markiert.</p>");
+			/* update configuration */
+			binpath.append(" -U");
+			string outu = config.GetStdoutFromCommand(binpath);
+			comment.append("<p>2. Konfiguration wurde neu erstellt.</p>");
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: Update Configuration Output :: \n\n" << outu << "\n\n" << endl; }
+			/* check configuration */
+			binpath.append(" -X && /bin/echo $?");
+			string outx = config.GetStdoutFromCommand(binpath);
+			comment.append("<p>3. Konfiguration wurde gepr&uuml;ft.</p>");
+			comment.append("<p>4. Neustart durchgef&uuml;hrt.</p>");
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: Check Configuration Output :: \n\n" << outx << "\n\n" << endl; }
+			/* insert mail for replay */
+			PreparedStatement_T pfm2 = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,'0','0','7',?,encode(?,'base64'),'0','0','0',?)");
+			PreparedStatement_setString(pfm2, 1, usr.c_str());
+			PreparedStatement_setString(pfm2, 2, comment.c_str());
+			PreparedStatement_setInt(pfm2, 3, timestamp);
+			PreparedStatement_execute(pfm2);
+			/* fork process and execute */
+			pid_t cpid;
+			cpid = fork();
+			switch (cpid) {
+			    case -1:
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: Fork Error" << endl; }
+				perror("fork");
+				break;
+			    case 0:
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: Fork Success" << endl; }
+				execl(indpath.c_str(), "icinga", "restart", NULL);
+				_exit (EXIT_FAILURE);
+			    default:
+				waitpid(cpid, NULL, 0);
+			}
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING/SYSTEM_TASK SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING/SYSTEM_TASK SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    break;
+		default:
+		    break;
+	    }
+	}
     } CATCH(SQLException) {
-	snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING_TASK SQLException - %s\n", Exception_frame.message);
+	snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING/SYSTEM_TASK SQLException - %s\n", Exception_frame.message);
 	temp_buffer[sizeof(temp_buffer)-1] = '\x0';
 	write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-	if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING_TASK SQLException - " << Exception_frame.message << endl; }
+	if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING/SYSTEM_TASK SQLException - " << Exception_frame.message << endl; }
     } FINALLY {
 	Connection_close(con);
     } END_TRY;
@@ -2055,6 +2387,9 @@ int process_module_args(char *args) {
 	config.Get("debug",debug);
 	config.Get("lg.file",dbgfile);
 	config.Get("command.file",commandfile);
+	config.Get("config.file",configfile);
+	config.Get("bin.path",binpath);
+	config.Get("ind.path",indpath);
     }
     return 0;
 }
