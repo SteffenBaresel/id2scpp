@@ -27,7 +27,7 @@ extern "C" int nebmodule_init(int flags, char *args, nebmodule *handle) {
 	write_to_all_logs("id2sc: Load configuration done.", NSLOG_INFO_MESSAGE);
     }
 
-    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: Parameter :: id.name -> %s\n[%d] id2sc: Parameter :: id.idtf -> %s\n[%d] id2sc: Parameter :: lg.file -> %s\n[%d] id2sc: Parameter :: debug -> %s\n[%d] id2sc: Parameter :: pg.url -> %s\n[%d] id2sc: Parameter :: command.file -> %s\n[%d] id2sc: Parameter :: config.file -> %s\n[%d] id2sc: Parameter :: bin.path -> %s\n[%d] id2sc: Parameter :: ind.path -> %s", idname.c_str(), (int)time(NULL), identifier.c_str(), (int)time(NULL), dbgfile.c_str(), (int)time(NULL), debug.c_str(), (int)time(NULL), pgurl.c_str(), (int)time(NULL), commandfile.c_str(), (int)time(NULL), configfile.c_str(), (int)time(NULL), binpath.c_str(), (int)time(NULL), indpath.c_str());
+    snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc: Parameter :: id.name -> %s\n[%d] id2sc: Parameter :: id.idtf -> %s\n[%d] id2sc: Parameter :: lg.file -> %s\n[%d] id2sc: Parameter :: debug -> %s\n[%d] id2sc: Parameter :: pg.url -> %s\n[%d] id2sc: Parameter :: command.file -> %s\n[%d] id2sc: Parameter :: config.file -> %s\n[%d] id2sc: Parameter :: bin.path -> %s\n[%d] id2sc: Parameter :: ind.path -> %s\n[%d] id2sc: Parameter :: cleanup -> %s", idname.c_str(), (int)time(NULL), identifier.c_str(), (int)time(NULL), dbgfile.c_str(), (int)time(NULL), debug.c_str(), (int)time(NULL), pgurl.c_str(), (int)time(NULL), commandfile.c_str(), (int)time(NULL), configfile.c_str(), (int)time(NULL), binpath.c_str(), (int)time(NULL), indpath.c_str(), (int)time(NULL), cnup.c_str());
     temp_buffer[sizeof(temp_buffer)-1] = '\x0';
     write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
 
@@ -110,6 +110,7 @@ extern "C" int nebmodule_init(int flags, char *args, nebmodule *handle) {
     interval = 5;
     schedule_new_event(EVENT_USER_FUNCTION, TRUE, current_time + interval, TRUE, interval, NULL, TRUE, (int *)MonitoringTask, NULL, 0);
     schedule_new_event(EVENT_USER_FUNCTION, TRUE, current_time + interval, TRUE, interval, NULL, TRUE, (int *)CheckConfigMtime, NULL, 0);
+    schedule_new_event(EVENT_USER_FUNCTION, TRUE, current_time + 300, TRUE, interval, NULL, TRUE, (int *)CnupConfiguration, NULL, 0);
     /* End */
 
     return 0;
@@ -162,11 +163,18 @@ int id2sc_handle_data(int event_type, void *data) {
     string mode;
     string name;
     string line;
+    string line2;
     Configuration s;
     char *array[101];
     int i;
 
     if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT: " << event_type << endl; }
+
+    if (startup == 0) {
+
+	if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] STARTUP_RUNTIME: NO DATA UPDATE " << endl; }
+
+    } else {
 
     switch (event_type) {
 	case NEBCALLBACK_SERVICE_STATUS_DATA:
@@ -1426,10 +1434,21 @@ int id2sc_handle_data(int event_type, void *data) {
 		type = es[1].substr(0,es[1].find_first_of("_"));
 		mode = es[7].substr(0, es[7].find_first_of("_"));
 		name = es[7].substr(es[7].find_first_of("_")+1);
+		line2 = es[0] + "::" + es[1];
 
 		if (temp_host->current_state > 0) { cstate = temp_host->current_state+1; } else { cstate = temp_host->current_state; }
 		if (temp_host->last_state > 0) { lstate = temp_host->last_state+1; } else { lstate = temp_host->last_state; }
 
+		if(temp[102].empty()) { dd2 = 0; temp[102] = line2; } else { if(temp[102].compare(line2) != 0) { dd2 = 0; temp[102] = line2; } else { dd2++; } }
+		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH_POST: temp[100] = " << temp[100] << " :: name = " << name << " :: cc = " << cc << " :: temp[101] = " << temp[101] << " :: dd = " << dd << endl; }
+		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS-SPLIT: type = " << type << " :: mode = " << mode << " :: name = " << name << endl; }
+		
+	    if ( (dd2 == 1) || (dd2 > 2) ) {
+		
+		if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] EVENT-SWITCH-HOST_STATUS-DOUBLE ENTRY: dd2 > 0 Exit" << endl; }
+		
+	    } else {
+		con = ConnectionPool_getConnection(pool);
 		TRY {
 		    /* Get Host ID */
 		    PreparedStatement_T shsd = Connection_prepareStatement(con, "SELECT hstid FROM monitoring_info_host WHERE instid=? AND hstln=? AND ipaddr=?");
@@ -1731,6 +1750,8 @@ int id2sc_handle_data(int event_type, void *data) {
 		    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] HOST_STATUS_CONNECTION_CLOSE: done. " << endl; }
 		} END_TRY;
 	    }
+	
+	    }
 		/* end */
 	    break;
 	case NEBCALLBACK_PROGRAM_STATUS_DATA:
@@ -1807,12 +1828,20 @@ int id2sc_handle_data(int event_type, void *data) {
 	    break;
     }
 
+    }
+
     return 0;
 }
 
 int CheckConfigMtime() {
     int timestamp = (int)time(NULL); struct stat fileinfo; struct tm *ts; time_t tmst;
     /**/
+    if (startup == 0) {
+	startup = 1;
+        if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] STARTUP RUNTIME: SET STARTUP TO: " << startup << endl; }
+    } else {
+	if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] STARTUP RUNTIME: STARTUP IS: " << startup << endl; }
+    }
     if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CHECK_CONFIG_MTIME: " << endl; }
     stat(configfile.c_str(), &fileinfo);
     ts = gmtime(&(fileinfo.st_mtime));
@@ -2303,7 +2332,7 @@ int MonitoringTask() {
 	    long tsstart = ResultSet_getIntByName(result2, "tsstart");
 	    string usr = ResultSet_getString(result2, 4);
 	    string comment = ResultSet_getString(result2, 5);
-	    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: type = " << type << ", tsstart = " << tsstart << endl; }
+	    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: type = " << type << ", tsstart = " << tsstart << ", tid = " << tid << endl; }
 	    /* Switch Type */
 	    switch (type) {
 		case 100: /* Restart Icinga / Check_mk */
@@ -2313,43 +2342,241 @@ int MonitoringTask() {
 			PreparedStatement_setInt(stu2, 1, tid);
 			PreparedStatement_execute(stu2);
 			comment.append("<p>1. Task wurde als erledigt markiert.</p>");
+			UpdateOutputTable(tid, "Task wurde als erledigt markiert.");
 			/* update configuration */
-			binpath.append(" -U");
+			binpath.append(" -U >/dev/null && /bin/echo $?");
 			string outu = config.GetStdoutFromCommand(binpath);
-			comment.append("<p>2. Konfiguration wurde neu erstellt.</p>");
-			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: Update Configuration Output :: \n\n" << outu << "\n\n" << endl; }
-			/* check configuration */
-			binpath.append(" -X && /bin/echo $?");
-			string outx = config.GetStdoutFromCommand(binpath);
-			comment.append("<p>3. Konfiguration wurde gepr&uuml;ft.</p>");
-			comment.append("<p>4. Neustart durchgef&uuml;hrt.</p>");
-			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: Check Configuration Output :: \n\n" << outx << "\n\n" << endl; }
-			/* insert mail for replay */
-			PreparedStatement_T pfm2 = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,'0','0','7',?,encode(?,'base64'),'0','0','0',?)");
-			PreparedStatement_setString(pfm2, 1, usr.c_str());
-			PreparedStatement_setString(pfm2, 2, comment.c_str());
-			PreparedStatement_setInt(pfm2, 3, timestamp);
-			PreparedStatement_execute(pfm2);
+			string ou = outu.substr(0,1);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 100: outu = " << ou << endl; }
+			if (ou.compare("0") == 0) {
+			    comment.append("<p>2. Konfiguration wurde neu erstellt.</p>");
+			    UpdateOutputTable(tid, "Konfiguration wurde neu erstellt.");
+			    /* check configuration */
+			    binpath.append(" -X >/dev/null && /bin/echo $?");
+			    string outx = config.GetStdoutFromCommand(binpath);
+			    string ox = outu.substr(0,1);
+			    if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 100: outx = " << ox << endl; }
+			    if (ox.compare("0") == 0) {
+				comment.append("<p>3. Konfiguration wurde gepr&uuml;ft.</p>");
+				UpdateOutputTable(tid, "Konfiguration wurde gepr&uuml;ft.");
+				/* fork process and execute */
+				pid_t cpid;
+				cpid = fork();
+				switch (cpid) {
+				    case -1:
+					if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 100: Fork Error" << endl; }
+					perror("fork");
+					break;
+				    case 0:
+					if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 100: Fork Success" << endl; }
+					comment.append("<p>4. icinga-restart geforkt.</p>");
+					UpdateOutputTable(tid, " icinga-restart geforkt.");
+					UpdateMailTable(usr,comment);
+					execl(indpath.c_str(), "icinga", "restart", NULL);
+					_exit (EXIT_FAILURE);
+				    default:
+					waitpid(cpid, NULL, 0);
+				}
+			    }
+			}
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING/SYSTEM_TASK 100 SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING/SYSTEM_TASK 100 SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    break;
+		case 101: /* Inventory all services - search for new services */
+		    TRY {
+			/* Update task done */
+			PreparedStatement_T stu2 = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
+			PreparedStatement_setInt(stu2, 1, tid);
+			PreparedStatement_execute(stu2);
+			comment.append("<p>1. Task wurde als erledigt markiert.</p>");
+			UpdateOutputTable(tid, "Task wurde als erledigt markiert.");
 			/* fork process and execute */
+			comment.append("<p>2. Langlaufender Prozess wurde gestartet.</p>");
 			pid_t cpid;
 			cpid = fork();
 			switch (cpid) {
 			    case -1:
-				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: Fork Error" << endl; }
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 101: Fork Error" << endl; }
 				perror("fork");
 				break;
 			    case 0:
-				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK: Fork Success" << endl; }
-				execl(indpath.c_str(), "icinga", "restart", NULL);
+			    {
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 101: Fork Success" << endl; }
+				UpdateOutputTable(tid, "Prozess geforkt.");
+				binpath.append(" -I >/dev/null && /bin/echo $?");
+				string outi = config.GetStdoutFromCommand(binpath);
+				string oi = outi.substr(0,1);
+				if(oi.compare("0") == 0) {
+				    UpdateOutputTable(tid, "Inventory-new-services erfolgreich beendet.");
+				    comment.append("<p>3. Inventory-new-services erfolgreich beendet.</p>");
+				    UpdateMailTable(usr,comment);
+				} else {
+				    UpdateOutputTable(tid, "Inventory-new-services nicht erfolgreich beendet.");
+				    comment.append("<p>3. Inventory-new-services nicht erfolgreich beendet.</p>");
+				    UpdateMailTable(usr,comment);
+				}
 				_exit (EXIT_FAILURE);
+			    }
 			    default:
 				waitpid(cpid, NULL, 0);
 			}
 		    } CATCH(SQLException) {
-			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING/SYSTEM_TASK SQLException - %s\n", Exception_frame.message);
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING/SYSTEM_TASK 101 SQLException - %s\n", Exception_frame.message);
 			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
 			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
-			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING/SYSTEM_TASK SQLException - " << Exception_frame.message << endl; }
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING/SYSTEM_TASK 101 SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    break;
+		case 102: /* Inventory all services - search all services */
+		    TRY {
+			/* Update task done */
+			PreparedStatement_T stu2 = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
+			PreparedStatement_setInt(stu2, 1, tid);
+			PreparedStatement_execute(stu2);
+			comment.append("<p>1. Task wurde als erledigt markiert.</p>");
+			UpdateOutputTable(tid, "Task wurde als erledigt markiert.");
+			/* fork process and execute */
+			comment.append("<p>2. Langlaufender Prozess wurde gestartet.</p>");
+			pid_t cpid;
+			cpid = fork();
+			switch (cpid) {
+			    case -1:
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 102: Fork Error" << endl; }
+				perror("fork");
+				break;
+			    case 0:
+			    {
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 102: Fork Success" << endl; }
+				UpdateOutputTable(tid, "Prozess geforkt.");
+				binpath.append(" -II >/dev/null && /bin/echo $?");
+				string outi = config.GetStdoutFromCommand(binpath);
+				string oi = outi.substr(0,1);
+				if(oi.compare("0") == 0) {
+				    UpdateOutputTable(tid, "Inventory-all-services erfolgreich beendet.");
+				    comment.append("<p>3. Inventory-all-services erfolgreich beendet.</p>");
+				    UpdateMailTable(usr,comment);
+				} else {
+				    UpdateOutputTable(tid, "Inventory-all-services nicht erfolgreich beendet.");
+				    comment.append("<p>3. Inventory-all-services nicht erfolgreich beendet.</p>");
+				    UpdateMailTable(usr,comment);
+				}
+				_exit (EXIT_FAILURE);
+			    }
+			    default:
+				waitpid(cpid, NULL, 0);
+			}
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING/SYSTEM_TASK 102 SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING/SYSTEM_TASK 102 SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    break;
+		case 103: /* Inventory all services of one host - search new services */
+		    TRY {
+			string hostname = comment;
+			comment.append(" wird auf neue Services gepr&uuml;ft.");
+			/* Update task done */
+			PreparedStatement_T stu2 = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
+			PreparedStatement_setInt(stu2, 1, tid);
+			PreparedStatement_execute(stu2);
+			comment.append("<p>1. Task wurde als erledigt markiert.</p>");
+			UpdateOutputTable(tid, "Task wurde als erledigt markiert.");
+			/* fork process and execute */
+			comment.append("<p>2. Langlaufender Prozess wurde gestartet.</p>");
+			pid_t cpid;
+			cpid = fork();
+			switch (cpid) {
+			    case -1:
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 103: Fork Error" << endl; }
+				perror("fork");
+				break;
+			    case 0:
+			    {
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 103: Fork Success" << endl; }
+				UpdateOutputTable(tid, "Prozess geforkt.");
+				binpath.append(" -I " + hostname + " >/dev/null && /bin/echo $?");
+				string outi = config.GetStdoutFromCommand(binpath);
+				string oi = outi.substr(0,1);
+				if(oi.compare("0") == 0) {
+				    UpdateOutputTable(tid, "Host Inventory-new-services erfolgreich beendet.");
+				    comment.append("<p>3. Host Inventory-new-services erfolgreich beendet.</p>");
+				    UpdateMailTable(usr,comment);
+				} else {
+				    UpdateOutputTable(tid, "Host Inventory-new-services nicht erfolgreich beendet.");
+				    comment.append("<p>3. Host Inventory-new-services nicht erfolgreich beendet.</p>");
+				    UpdateMailTable(usr,comment);
+				}
+				_exit (EXIT_FAILURE);
+			    }
+			    default:
+				waitpid(cpid, NULL, 0);
+			}
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING/SYSTEM_TASK 103 SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING/SYSTEM_TASK 103 SQLException - " << Exception_frame.message << endl; }
+		    } FINALLY {
+			Connection_close(con);
+		    } END_TRY;
+		    break;
+		case 104: /* Inventory all services of one host - search all services */
+		    TRY {
+			string hostname = comment;
+			comment.append(" wird komplett reinventarisiert.");
+			/* Update task done */
+			PreparedStatement_T stu2 = Connection_prepareStatement(con, "UPDATE monitoring_task SET done=true WHERE tid=?");
+			PreparedStatement_setInt(stu2, 1, tid);
+			PreparedStatement_execute(stu2);
+			comment.append("<p>1. Task wurde als erledigt markiert.</p>");
+			UpdateOutputTable(tid, "Task wurde als erledigt markiert.");
+			/* fork process and execute */
+			comment.append("<p>2. Langlaufender Prozess wurde gestartet.</p>");
+			pid_t cpid;
+			cpid = fork();
+			switch (cpid) {
+			    case -1:
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 104: Fork Error" << endl; }
+				perror("fork");
+				break;
+			    case 0:
+			    {
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 104: Fork Success" << endl; }
+				UpdateOutputTable(tid, "Prozess geforkt.");
+				binpath.append(" -II " + hostname + " >/dev/null && /bin/echo $?");
+				string outi = config.GetStdoutFromCommand(binpath);
+				string oi = outi.substr(0,1);
+				if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] SYSTEM_TASK 104: binpath = " << binpath << " :: outi = " << outi << " :: oi = " << oi << endl; }
+				if(oi.compare("0") == 0) {
+				    UpdateOutputTable(tid, "Host Inventory-all-services erfolgreich beendet.");
+				    comment.append("<p>3. Host Inventory-all-services erfolgreich beendet.</p>");
+				    UpdateMailTable(usr,comment);
+				} else {
+				    UpdateOutputTable(tid, "Host Inventory-all-services nicht erfolgreich beendet.");
+				    comment.append("<p>3. Host Inventory-all-services nicht erfolgreich beendet.</p>");
+				    UpdateMailTable(usr,comment);
+				}
+				_exit (EXIT_FAILURE);
+			    }
+			    default:
+				waitpid(cpid, NULL, 0);
+			}
+		    } CATCH(SQLException) {
+			snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: MONITORING/SYSTEM_TASK 104 SQLException - %s\n", Exception_frame.message);
+			temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+			write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+			if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: MONITORING/SYSTEM_TASK 104 SQLException - " << Exception_frame.message << endl; }
 		    } FINALLY {
 			Connection_close(con);
 		    } END_TRY;
@@ -2369,6 +2596,98 @@ int MonitoringTask() {
 
     return 0;
 }
+
+int UpdateOutputTable(int tid, string comment) {
+    int timestamp = (int)time(NULL);
+    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] UPDATE_OUTPUT_TABLE: " << endl; }
+    con = ConnectionPool_getConnection(pool);
+    TRY {
+	PreparedStatement_T stu2 = Connection_prepareStatement(con, "INSERT INTO monitoring_task_out(INSTID,OUTPUT,TID,CREATED) VALUES (?,encode(?,'base64'),?,?)");
+	PreparedStatement_setInt(stu2, 1, instid);
+	PreparedStatement_setString(stu2, 2, comment.c_str());
+	PreparedStatement_setInt(stu2, 3, tid);
+	PreparedStatement_setInt(stu2, 4, timestamp);
+	PreparedStatement_execute(stu2);
+    } CATCH(SQLException) {
+	snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: UPDATE_OUTPUT_TABLE SQLException - %s\n", Exception_frame.message);
+	temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+	write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+	if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: UPDATE_OUTPUT_TABLE SQLException - " << Exception_frame.message << endl; }
+    } FINALLY {
+	Connection_close(con);
+    } END_TRY;
+    return 0;
+}
+
+int UpdateMailTable(string usr, string comment) {
+    int timestamp = (int)time(NULL);
+    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] UPDATE_MAIL_TABLE: " << endl; }
+    con = ConnectionPool_getConnection(pool);
+    TRY {
+	PreparedStatement_T pfm2 = Connection_prepareStatement(con, "INSERT INTO monitoring_mailing(DONE,HSTID,SRVID,MTYPID,USR,COMMENT,APPID,T1,T2,CREATED) VALUES (false,'0','0','7',?,encode(?,'base64'),'0','0','0',?)");
+	PreparedStatement_setString(pfm2, 1, usr.c_str());
+	PreparedStatement_setString(pfm2, 2, comment.c_str());
+	PreparedStatement_setInt(pfm2, 3, timestamp);
+	PreparedStatement_execute(pfm2);
+    } CATCH(SQLException) {
+	snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: UPDATE_MAIL_TABLE SQLException - %s\n", Exception_frame.message);
+	temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+	write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+	if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: UPDATE_MAIL_TABLE SQLException - " << Exception_frame.message << endl; }
+    } FINALLY {
+	Connection_close(con);
+    } END_TRY;
+    return 0;
+}
+
+int CnupConfiguration() {
+    int timestamp = (int)time(NULL);
+    if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CLEANUP_CONFIGURATION: SEARCH FOR OLD CONFIGURATIONS EVERY 5 MIN" << endl; }
+    con = ConnectionPool_getConnection(pool);
+    TRY {
+	PreparedStatement_T scnup = Connection_prepareStatement(con, "select a.srvid,b.srvna,c.hstln,a.hstid from monitoring_status a, monitoring_info_service b, monitoring_info_host c where a.srvid=b.srvid and b.hstid=c.hstid and a.created<? order by 1");
+	PreparedStatement_setInt(scnup, 1, timestamp-atoi(cnup.c_str()));
+	ResultSet_T instanceCCNUP = PreparedStatement_executeQuery(scnup);
+	while (ResultSet_next(instanceCCNUP)) {
+	    int srvid = ResultSet_getIntByName(instanceCCNUP, "srvid");
+	    string srvna = ResultSet_getString(instanceCCNUP, 2);
+	    string hstln = ResultSet_getString(instanceCCNUP, 3);
+	    int hstid = ResultSet_getIntByName(instanceCCNUP, "hstid");
+	    /* Check if Host is Offline */
+	    PreparedStatement_T scnup2 = Connection_prepareStatement(con, "select a.hstid from monitoring_status a, monitoring_info_service b, monitoring_info_host c where a.srvid=b.srvid and b.hstid=c.hstid and b.hstid=? and b.srvna=? and a.current_state=0");
+	    PreparedStatement_setInt(scnup2, 1, hstid);
+	    PreparedStatement_setString(scnup2, 2, "SYSTEM_ICMP_REQUEST");
+	    ResultSet_T instanceCCNUP2 = PreparedStatement_executeQuery(scnup2);
+	    if (ResultSet_next(instanceCCNUP2)) {
+		if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CLEANUP_CONFIGURATION: FOUND OLD CONFIGURATION WHERE HOST IS ONLINE: " << srvid << ":" << srvna << ":" << hstln << endl; }
+		/* Delete from monitoring status */
+		PreparedStatement_T stu1 = Connection_prepareStatement(con, "DELETE FROM monitoring_status WHERE srvid=?");
+		PreparedStatement_setInt(stu1, 1, srvid);
+		PreparedStatement_execute(stu1);
+		/* Delete from monitoring info service */
+		PreparedStatement_T stu2 = Connection_prepareStatement(con, "DELETE FROM monitoring_info_service WHERE srvid=?");
+		PreparedStatement_setInt(stu2, 1, srvid);
+		PreparedStatement_execute(stu2);
+		/* Delete from monitoring status history */
+		PreparedStatement_T stu3 = Connection_prepareStatement(con, "DELETE FROM monitoring_status_history WHERE srvid=?");
+		PreparedStatement_setInt(stu3, 1, srvid);
+		PreparedStatement_execute(stu3);
+		if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CLEANUP_CONFIGURATION: DELETED" << endl; }
+	    } else {
+		if (debug.compare("on") == 0) { debugfile << "[" << timestamp << "] CLEANUP_CONFIGURATION: FOUND OLD CONFIGURATION WHERE HOST IS OFFLINE. DO NOT DELETE." << endl; }
+	    }
+	}
+    } CATCH(SQLException) {
+	snprintf(temp_buffer, sizeof(temp_buffer) - 1, "id2sc++: CLEANUP_CONFIGURATION SQLException - %s\n", Exception_frame.message);
+	temp_buffer[sizeof(temp_buffer)-1] = '\x0';
+	write_to_all_logs(temp_buffer, NSLOG_INFO_MESSAGE);
+	if (debug.compare("on") == 0) { debugfile << "[" << time(NULL) << "] id2sc++: CLEANUP_CONFIGURATION SQLException - " << Exception_frame.message << endl; }
+    } FINALLY {
+	Connection_close(con);
+    } END_TRY;
+    return 0;
+}
+
 
 /**/
 
@@ -2390,6 +2709,7 @@ int process_module_args(char *args) {
 	config.Get("config.file",configfile);
 	config.Get("bin.path",binpath);
 	config.Get("ind.path",indpath);
+	config.Get("cleanup",cnup);
     }
     return 0;
 }

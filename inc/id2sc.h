@@ -44,6 +44,7 @@ string identifier;
 string pgurl;
 string indpath;
 string binpath;
+string cnup;
 ConnectionPool_T pool;
 URL_T url_t;
 Connection_T con;
@@ -51,12 +52,17 @@ int instid;
 string temp[1010];
 int cc=0;
 int dd=0;
+int dd2=0;
 extern "C" char *escape_buffer(char *);
 int MonitoringTask();
 int UpdateConfiguration();
 int CheckConfigMtime();
+int CnupConfiguration();
 int UpdateConfigFile(int, char *);
 time_t lastts = time(NULL);
+int UpdateOutputTable(int, string);
+int UpdateMailTable(string, string);
 int kk=0;
+int startup=0;
 
 #endif
