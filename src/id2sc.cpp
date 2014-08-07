@@ -110,7 +110,7 @@ extern "C" int nebmodule_init(int flags, char *args, nebmodule *handle) {
     interval = 5;
     schedule_new_event(EVENT_USER_FUNCTION, TRUE, current_time + interval, TRUE, interval, NULL, TRUE, (int *)MonitoringTask, NULL, 0);
     schedule_new_event(EVENT_USER_FUNCTION, TRUE, current_time + interval, TRUE, interval, NULL, TRUE, (int *)CheckConfigMtime, NULL, 0);
-    schedule_new_event(EVENT_USER_FUNCTION, TRUE, current_time + 300, TRUE, interval, NULL, TRUE, (int *)CnupConfiguration, NULL, 0);
+    schedule_new_event(EVENT_USER_FUNCTION, TRUE, current_time + 5, TRUE, 300, NULL, TRUE, (int *)CnupConfiguration, NULL, 0);
     /* End */
 
     return 0;
